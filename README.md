@@ -1,8 +1,6 @@
 # SKSE ISL — Runtime Inverse Square Lighting Converter
 
-Standalone SKSE plugin that performs the same conversion as the xEdit script
-[`Convert to Inverse Square Lighting.pas`](docs/Convert%20to%20Inverse%20Square%20Lighting.pas),
-but at runtime — no patch ESP required.
+Standalone SKSE plugin that performs the conversion at runtime — no patch ESP required.
 
 Designed to pair with the
 [Community Shaders](https://github.com/doodlum/skyrim-community-shaders)
