@@ -87,10 +87,6 @@ where `F` = vanilla fade (`FNAM`), `r` = radius (`DATA\Radius`),
 `FNAM`, `s` to `DATA\FOV`, `c` to `DATA\Falloff Exponent`, and sets the
 Inverse Square flag bit (`0x4000`) in `DATA\Flags`.
 
-Because the engine re-initialises `LIGH` records from plugins on every load,
-this is run again every session — the ISL flag bit acts as the idempotency
-marker, just like the xEdit script.
-
 **REFR pass** (runs lazily on `TESCellAttachDetachEvent`):
 For every placed light in a newly-attached cell, reads `XSCL`, `ExtraRadius`
 (`XRDS`), and `ExtraLightData` (`XLIG`) and rewrites the `ExtraLightData`
@@ -98,9 +94,6 @@ fields under ISL semantics:
 
 - `ExtraLightData::fov` → absolute ISL size override (0 = inherit base)
 - `ExtraLightData::fade` → intensity **delta** from the converted base
-
-Unlike the xEdit script this does **not** write to any plugin file — all
-edits are in-memory only. Save games are unaffected.
 
 ## Limitations / known caveats
 
@@ -110,5 +103,3 @@ edits are in-memory only. Save games are unaffected.
   `Convert per-placement REFR overrides` in the UI if you see artifacts.
 - Carried lights (torch/spell) use the same converted `LIGH`, which is
   usually desirable.
-- If you later install a proper ESP patch from the xEdit script, disable
-  this plugin or turn off `Enabled` in the UI.
