@@ -112,7 +112,3 @@ edits are in-memory only. Save games are unaffected.
   usually desirable.
 - If you later install a proper ESP patch from the xEdit script, disable
   this plugin or turn off `Enabled` in the UI.
-
-## Licence
-
-MIT.
