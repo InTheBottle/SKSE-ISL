@@ -1,0 +1,50 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Visual Studio 17 2022",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+            }
+        },
+        {
+            "name": "ALL",
+            "inherits": "base",
+            "cacheVariables": {
+                "BUILD_SKYRIMSE": "ON",
+                "BUILD_SKYRIMAE": "ON",
+                "BUILD_SKYRIMVR": "ON"
+            }
+        },
+        {
+            "name": "SE",
+            "inherits": "base",
+            "cacheVariables": { "BUILD_SKYRIMSE": "ON" }
+        },
+        {
+            "name": "AE",
+            "inherits": "base",
+            "cacheVariables": { "BUILD_SKYRIMAE": "ON" }
+        },
+        {
+            "name": "VR",
+            "inherits": "base",
+            "cacheVariables": { "BUILD_SKYRIMVR": "ON" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "ALL",     "configurePreset": "ALL",     "configuration": "Release" },
+        { "name": "ALL-dbg", "configurePreset": "ALL",     "configuration": "Debug" },
+        { "name": "SE",      "configurePreset": "SE",      "configuration": "Release" },
+        { "name": "AE",      "configurePreset": "AE",      "configuration": "Release" },
+        { "name": "VR",      "configurePreset": "VR",      "configuration": "Release" }
+    ]
+}
