@@ -374,7 +374,7 @@ namespace isl {
 
             // Per-placement re-derivation in consistent units:
             //   1. un-boost baseI to true ISL intensity
-            //   2. reconstruct vanilla F via peak-match: F = 8 * I_isl / s^2
+            //   2. reconstruct vanilla F via peak-match: F = I_isl
             //   3. apply fadeOff / rOver / scale in vanilla space
             //   4. re-run ComputeISL; re-apply boost at the end
             const float c       = DefaultCutoff(baseFlags);
@@ -386,14 +386,7 @@ namespace isl {
             const float boost    = isShadow
                                        ? g_appliedShadowBoost.load(std::memory_order_acquire)
                                        : 1.0f;
-            const float baseI_u  = baseI / boost;
-
-            if (baseS <= 0.0f) {
-                ++g_stats.refrSkippedMath;
-                return;
-            }
-
-            const float Fbase = 8.0f * baseI_u / (baseS * baseS);
+            const float Fbase    = baseI / boost;
 
             const float rBase = static_cast<float>(ligh->data.radius);
             const float rOver = (xrds && xrds->radius > 0.0f) ? xrds->radius : rBase;

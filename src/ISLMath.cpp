@@ -15,21 +15,12 @@ namespace isl {
         const float s = std::sqrt(s2);
         if (s >= MaxSize)
             return false;
-        const float I = (F * c * r * r) / (K_I * fmc);
-        out.intensity = I;
+        // Peak-match: ISL intensity at d=0 equals vanilla fade.
+        // Size s already encodes the cutoff distance, so no extra scaling on I.
+        out.intensity = F;
         out.size      = s;
         out.cutoff    = c;
         return true;
-    }
-
-    float BaseISLIntensity(float F, float r, float c) noexcept
-    {
-        if (r <= 0.0f || c <= 0.0f || F <= 0.0f)
-            return 0.0f;
-        const float fmc = F - c;
-        if (fmc < MinFmc)
-            return 0.0f;
-        return (F * c * r * r) / (K_I * fmc);
     }
 
 }  // namespace isl

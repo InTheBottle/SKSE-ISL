@@ -5,7 +5,6 @@
 namespace isl {
 
     inline constexpr float K_S            = 1960.0f;
-    inline constexpr float K_I            = 15680.0f;
     inline constexpr float CutoffRegular  = 0.05f;
     inline constexpr float CutoffShadow   = 0.022f;
 
@@ -48,6 +47,4 @@ namespace isl {
 
     [[nodiscard]] bool ComputeISL(float F, float r, float c, ISLParams& out) noexcept;
 
-    [[nodiscard]] float BaseISLIntensity(float F, float r, float c) noexcept;
-
-} 
+}
