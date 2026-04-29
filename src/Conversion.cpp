@@ -17,6 +17,8 @@ namespace isl {
         std::mutex                          g_refrMutex;
         std::unordered_set<RE::FormID>      g_processedRefs;
         std::unordered_set<RE::FormID>      g_processedCells;
+        std::unordered_set<RE::FormID>      g_convertedLightIDs;
+        std::mutex                          g_convertedLightMutex;
 
         // LIGH base IDs from LP JSONs. Shared with vanilla placements,
         // so any mutation on these bases leaks into LP-spawned NiLights.
@@ -93,6 +95,22 @@ namespace isl {
                 return false;
             std::scoped_lock lk(g_magicFXMutex);
             return g_magicFXFormIDs.contains(id);
+        }
+
+        bool IsPluginConvertedLight(RE::FormID id) noexcept
+        {
+            if (id == 0)
+                return false;
+            std::scoped_lock lk(g_convertedLightMutex);
+            return g_convertedLightIDs.contains(id);
+        }
+
+        void MarkPluginConvertedLight(RE::FormID id)
+        {
+            if (id == 0)
+                return;
+            std::scoped_lock lk(g_convertedLightMutex);
+            g_convertedLightIDs.insert(id);
         }
 
         void AddLightID(std::unordered_set<RE::FormID>& ids, const RE::TESObjectLIGH* ligh)
@@ -407,6 +425,7 @@ namespace isl {
             ligh->data.fallofExponent = p.cutoff;
             ligh->data.flags.set(
                 static_cast<RE::TES_LIGHT_FLAGS>(FlagInverseSquare));
+            MarkPluginConvertedLight(ligh->formID);
 
             ++converted;
         }
@@ -456,7 +475,9 @@ namespace isl {
             if (!ligh) continue;
             const auto flagsRaw = ligh->data.flags.underlying();
             if (!IsAlreadyISL(flagsRaw)) continue;
+            if (!IsPluginConvertedLight(ligh->formID)) continue;
             if (!IsShadowCaster(flagsRaw)) continue;
+            if (g_config.excludeSpotLights && IsSpotLight(flagsRaw)) continue;
             if (g_config.excludeLightPlacer &&
                 IsLightPlacerExcluded(ligh->formID))
                 continue;
@@ -511,6 +532,8 @@ namespace isl {
 
             // Base wasn't converted (math out of domain or disabled) - skip placement too.
             if (!IsAlreadyISL(baseFlags))
+                return;
+            if (!IsPluginConvertedLight(ligh->formID))
                 return;
 
             // Save-safety: don't write ExtraLightData to persistent refs.
@@ -605,9 +628,16 @@ namespace isl {
         }
         ++g_stats.refrCellsProcessed;
 
-        auto& rd = cell->GetRuntimeData();
-        RE::BSSpinLockGuard lock(rd.spinLock);
-        for (const auto& handle : rd.references) {
+        std::vector<RE::NiPointer<RE::TESObjectREFR>> refs;
+        {
+            auto& rd = cell->GetRuntimeData();
+            RE::BSSpinLockGuard lock(rd.spinLock);
+            refs.reserve(rd.references.size());
+            for (const auto& handle : rd.references)
+                refs.emplace_back(handle);
+        }
+
+        for (const auto& handle : refs) {
             auto* refr = handle.get();
             if (!refr)
                 continue;

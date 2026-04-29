@@ -14,6 +14,29 @@ namespace isl {
 #if ISL_HAS_MENU_FRAMEWORK
 
     namespace {
+        constexpr float kShadowSliderWidth = 240.0f;
+        constexpr float kStatsCountColumnWidth = 96.0f;
+
+        bool DrawSavedCheckbox(const char* label, bool& setting)
+        {
+            bool value = setting;
+            if (!ImGuiMCP::Checkbox(label, &value))
+                return false;
+
+            setting = value;
+            GetConfig().Save();
+            return true;
+        }
+
+        void DrawStatRow(const char* label, const std::atomic<std::uint32_t>& value)
+        {
+            ImGuiMCP::TableNextRow();
+            ImGuiMCP::TableNextColumn();
+            ImGuiMCP::TextUnformatted(label);
+            ImGuiMCP::TableNextColumn();
+            ImGuiMCP::Text("%u", value.load());
+        }
+
         void __stdcall RenderPanel()
         {
             auto& cfg   = GetConfig();
@@ -26,30 +49,18 @@ namespace isl {
                 "falloff matches vanilla peak brightness and radius.");
 
             ImGuiMCP::Spacing();
+            ImGuiMCP::SeparatorText("Conversion");
 
-            bool enabled = cfg.enabled;
-            if (ImGuiMCP::Checkbox("Enabled (takes effect next load)", &enabled)) {
-                cfg.enabled = enabled;
-                cfg.Save();
-            }
+            DrawSavedCheckbox("Enabled (takes effect next load)", cfg.enabled);
+            DrawSavedCheckbox("Convert per-placement REFR overrides", cfg.convertRefrs);
 
-            bool refrs = cfg.convertRefrs;
-            if (ImGuiMCP::Checkbox("Convert per-placement REFR overrides", &refrs)) {
-                cfg.convertRefrs = refrs;
-                cfg.Save();
-            }
-
-            bool boost = cfg.boostShadowCasters;
-            if (ImGuiMCP::Checkbox("Boost shadow-caster intensity", &boost)) {
-                cfg.boostShadowCasters = boost;
-                cfg.Save();
+            if (DrawSavedCheckbox("Boost shadow-caster intensity", cfg.boostShadowCasters)) {
                 SetShadowBoost(cfg.shadowBoost);
             }
 
             float boostValue = cfg.shadowBoost;
-            if (ImGuiMCP::SliderFloat("Shadow boost multiplier",
-                                       &boostValue, 0.1f, 32.0f, "%.2fx"))
-            {
+            ImGuiMCP::SetNextItemWidth(kShadowSliderWidth);
+            if (ImGuiMCP::SliderFloat("Shadow boost multiplier", &boostValue, 0.1f, 32.0f, "%.2fx")) {
                 cfg.shadowBoost = boostValue;  // stash live; apply on release
             }
             if (ImGuiMCP::IsItemDeactivatedAfterEdit()) {
@@ -58,40 +69,47 @@ namespace isl {
                     SetShadowBoost(cfg.shadowBoost);
             }
 
-            bool excludeLP = cfg.excludeLightPlacer;
-            if (ImGuiMCP::Checkbox("Exclude LightPlacer-managed light bases", &excludeLP)) {
-                cfg.excludeLightPlacer = excludeLP;
-                cfg.Save();
-            }
+            ImGuiMCP::Spacing();
+            ImGuiMCP::SeparatorText("Exclusions");
+
+            DrawSavedCheckbox("Exclude LightPlacer-managed light bases", cfg.excludeLightPlacer);
             ImGuiMCP::SameLine();
             if (ImGuiMCP::Button("Rescan LP JSONs")) {
                 LoadLightPlacerExclusions();
             }
 
-            bool excludeSpot = cfg.excludeSpotLights;
-            if (ImGuiMCP::Checkbox("Exclude spotlights entirely", &excludeSpot)) {
-                cfg.excludeSpotLights = excludeSpot;
-                cfg.Save();
-            }
+            DrawSavedCheckbox("Exclude spotlights entirely", cfg.excludeSpotLights);
 
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Session stats");
 
-            ImGuiMCP::Text("LIGH converted        : %u", stats.lighConverted.load());
-            ImGuiMCP::Text("LIGH already ISL      : %u", stats.lighSkippedAlreadyISL.load());
-            ImGuiMCP::Text("LIGH math out-of-range: %u", stats.lighSkippedMath.load());
-            ImGuiMCP::Text("LIGH skipped (LP)     : %u", stats.lighSkippedLightPlacer.load());
-            ImGuiMCP::Text("LIGH skipped (magic/FX): %u", stats.lighSkippedMagicFX.load());
-            ImGuiMCP::Text("LIGH skipped (spot)   : %u", stats.lighSkippedSpot.load());
-            ImGuiMCP::Text("REFR cells processed  : %u", stats.refrCellsProcessed.load());
-            ImGuiMCP::Text("REFR converted        : %u", stats.refrConverted.load());
-            ImGuiMCP::Text("REFR math skipped     : %u", stats.refrSkippedMath.load());
-            ImGuiMCP::Text("REFR skipped (LP)     : %u", stats.refrSkippedLightPlacer.load());
-            ImGuiMCP::Text("REFR skipped (magic/FX): %u", stats.refrSkippedMagicFX.load());
-            ImGuiMCP::Text("REFR skipped (spot)   : %u", stats.refrSkippedSpot.load());
-            ImGuiMCP::Text("REFR skipped (persist): %u", stats.refrSkippedPersistent.load());
+            if (ImGuiMCP::BeginTable("##isl-stats", 2,
+                    ImGuiMCP::ImGuiTableFlags_BordersInnerH |
+                    ImGuiMCP::ImGuiTableFlags_RowBg |
+                    ImGuiMCP::ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGuiMCP::TableSetupColumn("Metric", ImGuiMCP::ImGuiTableColumnFlags_WidthStretch);
+                ImGuiMCP::TableSetupColumn("Count", ImGuiMCP::ImGuiTableColumnFlags_WidthFixed, kStatsCountColumnWidth);
+                ImGuiMCP::TableHeadersRow();
+                DrawStatRow("LIGH converted", stats.lighConverted);
+                DrawStatRow("LIGH already ISL", stats.lighSkippedAlreadyISL);
+                DrawStatRow("LIGH math out-of-range", stats.lighSkippedMath);
+                DrawStatRow("LIGH skipped (LP)", stats.lighSkippedLightPlacer);
+                DrawStatRow("LIGH skipped (magic/FX)", stats.lighSkippedMagicFX);
+                DrawStatRow("LIGH skipped (spot)", stats.lighSkippedSpot);
+                DrawStatRow("REFR cells processed", stats.refrCellsProcessed);
+                DrawStatRow("REFR converted", stats.refrConverted);
+                DrawStatRow("REFR math skipped", stats.refrSkippedMath);
+                DrawStatRow("REFR skipped (LP)", stats.refrSkippedLightPlacer);
+                DrawStatRow("REFR skipped (magic/FX)", stats.refrSkippedMagicFX);
+                DrawStatRow("REFR skipped (spot)", stats.refrSkippedSpot);
+                DrawStatRow("REFR skipped (persist)", stats.refrSkippedPersistent);
+                ImGuiMCP::EndTable();
+            }
 
             ImGuiMCP::Spacing();
+            ImGuiMCP::SeparatorText("Actions");
+
             if (ImGuiMCP::Button("Re-run LIGH pass now")) {
                 ConvertAllLights();
             }
