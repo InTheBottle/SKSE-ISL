@@ -81,11 +81,13 @@ namespace isl {
             ImGuiMCP::Text("LIGH already ISL      : %u", stats.lighSkippedAlreadyISL.load());
             ImGuiMCP::Text("LIGH math out-of-range: %u", stats.lighSkippedMath.load());
             ImGuiMCP::Text("LIGH skipped (LP)     : %u", stats.lighSkippedLightPlacer.load());
+            ImGuiMCP::Text("LIGH skipped (magic/FX): %u", stats.lighSkippedMagicFX.load());
             ImGuiMCP::Text("LIGH skipped (spot)   : %u", stats.lighSkippedSpot.load());
             ImGuiMCP::Text("REFR cells processed  : %u", stats.refrCellsProcessed.load());
             ImGuiMCP::Text("REFR converted        : %u", stats.refrConverted.load());
             ImGuiMCP::Text("REFR math skipped     : %u", stats.refrSkippedMath.load());
             ImGuiMCP::Text("REFR skipped (LP)     : %u", stats.refrSkippedLightPlacer.load());
+            ImGuiMCP::Text("REFR skipped (magic/FX): %u", stats.refrSkippedMagicFX.load());
             ImGuiMCP::Text("REFR skipped (spot)   : %u", stats.refrSkippedSpot.load());
             ImGuiMCP::Text("REFR skipped (persist): %u", stats.refrSkippedPersistent.load());
 

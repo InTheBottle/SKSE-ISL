@@ -74,7 +74,8 @@ directories:
 
 **LIGH pass** (runs on `kDataLoaded`, and on demand from the UI):
 Walks every `TESObjectLIGH` in the data handler. For each one not already
-flagged Inverse Square it solves
+flagged Inverse Square, and not excluded as a LightPlacer, magic, projectile,
+explosion, hazard, FX bulb, or glow-fill light, it solves
 
 $$
 s = \sqrt{\frac{c \cdot r^2}{1960\,(F - c)}},
@@ -101,5 +102,6 @@ fields under ISL semantics:
   relative deltas rather than reconstructing the exact vanilla `F`. For
   most placements the visual difference is negligible. Disable
   `Convert per-placement REFR overrides` in the UI if you see artifacts.
-- Carried lights (torch/spell) use the same converted `LIGH`, which is
-  usually desirable.
+- Magic, projectile, explosion, hazard, FX bulb, and glow-fill lights are left
+  untouched because those bases are often spawned dynamically or attached to
+  actor spell visuals.

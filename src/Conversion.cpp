@@ -23,6 +23,11 @@ namespace isl {
         std::unordered_set<RE::FormID>      g_lpFormIDs;
         std::mutex                          g_lpMutex;
 
+        // Dynamic FX LIGH bases referenced by magic effects, projectiles,
+        // explosions, hazards, or named like editor-only bulbs/fill lights.
+        std::unordered_set<RE::FormID>      g_magicFXFormIDs;
+        std::mutex                          g_magicFXMutex;
+
         // Shadow-boost factor currently baked into converted LIGH fades.
         std::atomic<float>                  g_appliedShadowBoost{ 1.0f };
 
@@ -80,6 +85,87 @@ namespace isl {
                 return false;
             std::scoped_lock lk(g_lpMutex);
             return g_lpFormIDs.contains(id);
+        }
+
+        bool IsMagicFXExcluded(RE::FormID id) noexcept
+        {
+            if (id == 0)
+                return false;
+            std::scoped_lock lk(g_magicFXMutex);
+            return g_magicFXFormIDs.contains(id);
+        }
+
+        void AddLightID(std::unordered_set<RE::FormID>& ids, const RE::TESObjectLIGH* ligh)
+        {
+            if (ligh)
+                ids.insert(ligh->formID);
+        }
+
+        void AddExplosionLightID(std::unordered_set<RE::FormID>& ids, const RE::BGSExplosion* expl)
+        {
+            if (expl)
+                AddLightID(ids, expl->data.light);
+        }
+
+        void AddProjectileLightIDs(std::unordered_set<RE::FormID>& ids, const RE::BGSProjectile* proj)
+        {
+            if (!proj)
+                return;
+
+            AddLightID(ids, proj->data.light);
+            AddLightID(ids, proj->data.muzzleFlashLight);
+            AddExplosionLightID(ids, proj->data.explosionType);
+        }
+
+        bool StartsWithNoCase(std::string_view text, std::string_view prefix) noexcept
+        {
+            if (text.size() < prefix.size())
+                return false;
+
+            for (std::size_t i = 0; i < prefix.size(); ++i) {
+                char a = text[i];
+                char b = prefix[i];
+                if (a >= 'A' && a <= 'Z') a = static_cast<char>(a - 'A' + 'a');
+                if (b >= 'A' && b <= 'Z') b = static_cast<char>(b - 'A' + 'a');
+                if (a != b)
+                    return false;
+            }
+            return true;
+        }
+
+        bool ContainsNoCase(std::string_view text, std::string_view needle) noexcept
+        {
+            if (needle.empty())
+                return true;
+            if (text.size() < needle.size())
+                return false;
+
+            for (std::size_t i = 0; i <= text.size() - needle.size(); ++i) {
+                if (StartsWithNoCase(text.substr(i), needle))
+                    return true;
+            }
+            return false;
+        }
+
+        bool IsFXBulbOrFillLight(const RE::TESObjectLIGH* ligh) noexcept
+        {
+            if (!ligh)
+                return false;
+
+            const char* editorID = ligh->GetFormEditorID();
+            if (!editorID || editorID[0] == '\0')
+                return false;
+
+            const std::string_view id{ editorID };
+            return ContainsNoCase(id, "glowfill") ||
+                   ContainsNoCase(id, "bulb") ||
+                   (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
+        }
+
+        void LoadAllExclusions()
+        {
+            LoadLightPlacerExclusions();
+            LoadMagicFXExclusions();
         }
     }  // namespace
 
@@ -192,6 +278,69 @@ namespace isl {
         }
     }
 
+    void LoadMagicFXExclusions()
+    {
+        std::unordered_set<RE::FormID> collected;
+
+        auto* dh = RE::TESDataHandler::GetSingleton();
+        if (!dh) {
+            std::scoped_lock lk(g_magicFXMutex);
+            g_magicFXFormIDs.clear();
+            return;
+        }
+
+        std::size_t mgefLights = 0, projLights = 0, explLights = 0,
+                    hazardLights = 0, nameLights = 0;
+
+        for (auto* mgef : dh->GetFormArray<RE::EffectSetting>()) {
+            if (!mgef)
+                continue;
+
+            const auto before = collected.size();
+            AddLightID(collected, mgef->data.light);
+            AddProjectileLightIDs(collected, mgef->data.projectileBase);
+            AddExplosionLightID(collected, mgef->data.explosion);
+            mgefLights += collected.size() - before;
+        }
+
+        for (auto* proj : dh->GetFormArray<RE::BGSProjectile>()) {
+            const auto before = collected.size();
+            AddProjectileLightIDs(collected, proj);
+            projLights += collected.size() - before;
+        }
+
+        for (auto* expl : dh->GetFormArray<RE::BGSExplosion>()) {
+            const auto before = collected.size();
+            AddExplosionLightID(collected, expl);
+            explLights += collected.size() - before;
+        }
+
+        for (auto* hazard : dh->GetFormArray<RE::BGSHazard>()) {
+            if (!hazard)
+                continue;
+
+            const auto before = collected.size();
+            AddLightID(collected, hazard->data.light);
+            hazardLights += collected.size() - before;
+        }
+
+        for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
+            if (!IsFXBulbOrFillLight(ligh))
+                continue;
+
+            if (collected.insert(ligh->formID).second)
+                ++nameLights;
+        }
+
+        {
+            std::scoped_lock lk(g_magicFXMutex);
+            g_magicFXFormIDs = std::move(collected);
+            logger::info(
+                "[ISL] Magic/FX light scan: mgef={} projectile={} explosion={} hazard={} nameMatch={} excludedBases={}",
+                mgefLights, projLights, explLights, hazardLights, nameLights, g_magicFXFormIDs.size());
+        }
+    }
+
     // LIGH pass
     void ConvertAllLights()
     {
@@ -209,7 +358,8 @@ namespace isl {
             g_config.boostShadowCasters ? std::max(0.0001f, g_config.shadowBoost)
                                         : 1.0f;
 
-        std::uint32_t converted = 0, skippedISL = 0, skippedMath = 0, skippedLP = 0, skippedSpot = 0;
+        std::uint32_t converted = 0, skippedISL = 0, skippedMath = 0,
+                      skippedLP = 0, skippedMagicFX = 0, skippedSpot = 0;
 
         for (auto* ligh : lights) {
             if (!ligh)
@@ -219,6 +369,11 @@ namespace isl {
                 IsLightPlacerExcluded(ligh->formID))
             {
                 ++skippedLP;
+                continue;
+            }
+
+            if (IsMagicFXExcluded(ligh->formID)) {
+                ++skippedMagicFX;
                 continue;
             }
 
@@ -260,13 +415,14 @@ namespace isl {
         g_stats.lighSkippedAlreadyISL += skippedISL;
         g_stats.lighSkippedMath       += skippedMath;
         g_stats.lighSkippedLightPlacer += skippedLP;
+        g_stats.lighSkippedMagicFX    += skippedMagicFX;
         g_stats.lighSkippedSpot       += skippedSpot;
 
         g_appliedShadowBoost.store(boost, std::memory_order_release);
         g_lighPassDone.store(true, std::memory_order_release);
 
-        logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} spotSkipped={} boost={:.2f}",
-            converted, skippedISL, skippedMath, skippedLP, skippedSpot, boost);
+        logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} magicFXSkipped={} spotSkipped={} boost={:.2f}",
+            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, boost);
     }
 
     // Live shadow-boost adjustment
@@ -304,6 +460,8 @@ namespace isl {
             if (g_config.excludeLightPlacer &&
                 IsLightPlacerExcluded(ligh->formID))
                 continue;
+            if (IsMagicFXExcluded(ligh->formID))
+                continue;
 
             ligh->fade *= ratio;
             ++touched;
@@ -336,6 +494,11 @@ namespace isl {
                 IsLightPlacerExcluded(ligh->formID))
             {
                 ++g_stats.refrSkippedLightPlacer;
+                return;
+            }
+
+            if (IsMagicFXExcluded(ligh->formID)) {
+                ++g_stats.refrSkippedMagicFX;
                 return;
             }
 
@@ -430,6 +593,7 @@ namespace isl {
             static std::once_flag s_lighOnce;
             std::call_once(s_lighOnce, [] {
                 logger::warn("[ISL] LIGH pass had not run by first cell attach - running now.");
+                LoadAllExclusions();
                 ConvertAllLights();
             });
         }
@@ -492,8 +656,8 @@ namespace isl {
             RegisterMenuFramework();
             break;
         case SKSE::MessagingInterface::kDataLoaded:
-            logger::info("[ISL] kDataLoaded - scanning LightPlacer, running LIGH pass");
-            LoadLightPlacerExclusions();
+            logger::info("[ISL] kDataLoaded - scanning exclusions, running LIGH pass");
+            LoadAllExclusions();
             ConvertAllLights();
             break;
         case SKSE::MessagingInterface::kPostLoadGame:
@@ -508,6 +672,7 @@ namespace isl {
             }
             if (!g_lighPassDone.load(std::memory_order_acquire)) {
                 logger::warn("[ISL] LIGH pass not yet run at save load; running now.");
+                LoadAllExclusions();
                 ConvertAllLights();
             }
             break;

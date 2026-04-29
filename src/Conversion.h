@@ -9,12 +9,14 @@ namespace isl {
         std::atomic<std::uint32_t> lighSkippedAlreadyISL{ 0 };
         std::atomic<std::uint32_t> lighSkippedMath{ 0 };
         std::atomic<std::uint32_t> lighSkippedLightPlacer{ 0 };
+        std::atomic<std::uint32_t> lighSkippedMagicFX{ 0 };
         std::atomic<std::uint32_t> lighSkippedSpot{ 0 };
 
         std::atomic<std::uint32_t> refrCellsProcessed{ 0 };
         std::atomic<std::uint32_t> refrConverted{ 0 };
         std::atomic<std::uint32_t> refrSkippedMath{ 0 };
         std::atomic<std::uint32_t> refrSkippedLightPlacer{ 0 };
+        std::atomic<std::uint32_t> refrSkippedMagicFX{ 0 };
         std::atomic<std::uint32_t> refrSkippedSpot{ 0 };
         std::atomic<std::uint32_t> refrSkippedPersistent{ 0 };
 
@@ -24,11 +26,13 @@ namespace isl {
             lighSkippedAlreadyISL = 0;
             lighSkippedMath = 0;
             lighSkippedLightPlacer = 0;
+            lighSkippedMagicFX = 0;
             lighSkippedSpot = 0;
             refrCellsProcessed = 0;
             refrConverted = 0;
             refrSkippedMath = 0;
             refrSkippedLightPlacer = 0;
+            refrSkippedMagicFX = 0;
             refrSkippedSpot = 0;
             refrSkippedPersistent = 0;
         }
@@ -56,6 +60,10 @@ namespace isl {
     // Scans Data/LightPlacer/**/*.json for "light" EditorIDs; resolved LIGH
     // bases are skipped everywhere (LIGH pass, REFR pass, live boost).
     void LoadLightPlacerExclusions();
+
+    // Collects magic/projectile/explosion/hazard lights and conservative
+    // FX bulb/fill editor-ID matches; these bases are never converted.
+    void LoadMagicFXExclusions();
 
     // Rewrites every TESObjectLIGH to ISL. Idempotent via the ISL flag bit.
     void ConvertAllLights();
