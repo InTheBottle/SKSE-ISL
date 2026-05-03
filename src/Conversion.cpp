@@ -185,7 +185,7 @@ namespace isl {
 
             const std::string_view id{ editorID };
             return ContainsNoCase(id, "glowfill") ||
-                   ContainsNoCase(id, "bulb") ||
+                   ContainsNoCase(id, "window") ||
                    HasEmittanceColor(ligh) ||
                    (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
         }
