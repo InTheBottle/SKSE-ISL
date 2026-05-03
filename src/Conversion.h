@@ -45,6 +45,7 @@ namespace isl {
         bool  boostShadowCasters  = true;
         bool  excludeLightPlacer  = true;
         bool  excludeSpotLights   = true;
+        float intensityScale      = 1.0f;
         float shadowBoost         = 8.0f;
 
         void Load();
@@ -56,6 +57,9 @@ namespace isl {
 
     // Live-scales every converted shadow-caster LIGH fade by newBoost / oldBoost.
     void SetShadowBoost(float newBoost);
+
+    // Live-scales every converted LIGH fade by newScale / oldScale.
+    void SetIntensityScale(float newScale);
 
     // Scans Data/LightPlacer/**/*.json for "light" EditorIDs; resolved LIGH
     // bases are skipped everywhere (LIGH pass, REFR pass, live boost).

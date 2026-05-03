@@ -14,7 +14,7 @@ namespace isl {
 #if ISL_HAS_MENU_FRAMEWORK
 
     namespace {
-        constexpr float kShadowSliderWidth = 240.0f;
+        constexpr float kSliderWidth = 260.0f;
         constexpr float kStatsCountColumnWidth = 96.0f;
 
         bool DrawSavedCheckbox(const char* label, bool& setting)
@@ -42,25 +42,27 @@ namespace isl {
             auto& cfg   = GetConfig();
             auto& stats = GetStats();
 
-            ImGuiMCP::SeparatorText("Inverse Square Lighting — Runtime Conversion");
-            ImGuiMCP::TextWrapped(
-                "Rewrites vanilla LIGH records (and per-placement overrides) "
-                "on data load so Community Shaders' Inverse Square Lighting "
-                "falloff matches vanilla peak brightness and radius.");
-
-            ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Conversion");
 
-            DrawSavedCheckbox("Enabled (takes effect next load)", cfg.enabled);
-            DrawSavedCheckbox("Convert per-placement REFR overrides", cfg.convertRefrs);
+            DrawSavedCheckbox("Enable conversion next load", cfg.enabled);
+            DrawSavedCheckbox("Convert placed-light overrides", cfg.convertRefrs);
 
-            if (DrawSavedCheckbox("Boost shadow-caster intensity", cfg.boostShadowCasters)) {
-                SetShadowBoost(cfg.shadowBoost);
+            ImGuiMCP::Spacing();
+            ImGuiMCP::SeparatorText("Intensity");
+
+            float intensityValue = cfg.intensityScale;
+            ImGuiMCP::SetNextItemWidth(kSliderWidth);
+            if (ImGuiMCP::SliderFloat("Global light intensity", &intensityValue, 0.25f, 8.0f, "%.2fx")) {
+                cfg.intensityScale = intensityValue;  // stash live; apply on release
+            }
+            if (ImGuiMCP::IsItemDeactivatedAfterEdit()) {
+                cfg.Save();
+                SetIntensityScale(cfg.intensityScale);
             }
 
             float boostValue = cfg.shadowBoost;
-            ImGuiMCP::SetNextItemWidth(kShadowSliderWidth);
-            if (ImGuiMCP::SliderFloat("Shadow boost multiplier", &boostValue, 0.1f, 32.0f, "%.2fx")) {
+            ImGuiMCP::SetNextItemWidth(kSliderWidth);
+            if (ImGuiMCP::SliderFloat("Shadow-caster boost", &boostValue, 0.1f, 32.0f, "%.2fx")) {
                 cfg.shadowBoost = boostValue;  // stash live; apply on release
             }
             if (ImGuiMCP::IsItemDeactivatedAfterEdit()) {
@@ -69,16 +71,20 @@ namespace isl {
                     SetShadowBoost(cfg.shadowBoost);
             }
 
+            if (DrawSavedCheckbox("Enable shadow-caster boost", cfg.boostShadowCasters)) {
+                SetShadowBoost(cfg.shadowBoost);
+            }
+
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Exclusions");
 
-            DrawSavedCheckbox("Exclude LightPlacer-managed light bases", cfg.excludeLightPlacer);
+            DrawSavedCheckbox("Exclude LightPlacer lights", cfg.excludeLightPlacer);
             ImGuiMCP::SameLine();
             if (ImGuiMCP::Button("Rescan LP JSONs")) {
                 LoadLightPlacerExclusions();
             }
 
-            DrawSavedCheckbox("Exclude spotlights entirely", cfg.excludeSpotLights);
+            DrawSavedCheckbox("Exclude spotlights", cfg.excludeSpotLights);
 
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Session stats");
@@ -91,35 +97,33 @@ namespace isl {
                 ImGuiMCP::TableSetupColumn("Metric", ImGuiMCP::ImGuiTableColumnFlags_WidthStretch);
                 ImGuiMCP::TableSetupColumn("Count", ImGuiMCP::ImGuiTableColumnFlags_WidthFixed, kStatsCountColumnWidth);
                 ImGuiMCP::TableHeadersRow();
-                DrawStatRow("LIGH converted", stats.lighConverted);
-                DrawStatRow("LIGH already ISL", stats.lighSkippedAlreadyISL);
-                DrawStatRow("LIGH math out-of-range", stats.lighSkippedMath);
-                DrawStatRow("LIGH skipped (LP)", stats.lighSkippedLightPlacer);
-                DrawStatRow("LIGH skipped (magic/FX)", stats.lighSkippedMagicFX);
-                DrawStatRow("LIGH skipped (spot)", stats.lighSkippedSpot);
-                DrawStatRow("REFR cells processed", stats.refrCellsProcessed);
-                DrawStatRow("REFR converted", stats.refrConverted);
-                DrawStatRow("REFR math skipped", stats.refrSkippedMath);
-                DrawStatRow("REFR skipped (LP)", stats.refrSkippedLightPlacer);
-                DrawStatRow("REFR skipped (magic/FX)", stats.refrSkippedMagicFX);
-                DrawStatRow("REFR skipped (spot)", stats.refrSkippedSpot);
-                DrawStatRow("REFR skipped (persist)", stats.refrSkippedPersistent);
+                DrawStatRow("Base converted", stats.lighConverted);
+                DrawStatRow("Base already ISL", stats.lighSkippedAlreadyISL);
+                DrawStatRow("Base math skipped", stats.lighSkippedMath);
+                DrawStatRow("Base skipped LightPlacer", stats.lighSkippedLightPlacer);
+                DrawStatRow("Base skipped magic/FX", stats.lighSkippedMagicFX);
+                DrawStatRow("Base skipped spot", stats.lighSkippedSpot);
+                DrawStatRow("Cells processed", stats.refrCellsProcessed);
+                DrawStatRow("Placed converted", stats.refrConverted);
+                DrawStatRow("Placed math skipped", stats.refrSkippedMath);
+                DrawStatRow("Placed skipped LightPlacer", stats.refrSkippedLightPlacer);
+                DrawStatRow("Placed skipped magic/FX", stats.refrSkippedMagicFX);
+                DrawStatRow("Placed skipped spot", stats.refrSkippedSpot);
+                DrawStatRow("Placed skipped persistent", stats.refrSkippedPersistent);
                 ImGuiMCP::EndTable();
             }
 
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Actions");
 
-            if (ImGuiMCP::Button("Re-run LIGH pass now")) {
+            if (ImGuiMCP::Button("Convert base lights now")) {
                 ConvertAllLights();
             }
             ImGuiMCP::SameLine();
-            if (ImGuiMCP::Button("Reset stats")) {
+            if (ImGuiMCP::Button("Reset counters")) {
                 stats.Reset();
             }
 
-            ImGuiMCP::Spacing();
-            ImGuiMCP::TextDisabled("Tip: toggling 'Enabled' only takes effect on next data load.");
         }
     }  // namespace
 

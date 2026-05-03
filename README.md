@@ -78,12 +78,15 @@ flagged Inverse Square, and not excluded as a LightPlacer, magic, projectile,
 explosion, hazard, window/glow/fx editor-ID match, or emittance light, it solves
 
 $$
-s = \sqrt{\frac{c \cdot r^2}{1960\,(F - c)}}
+s = \sqrt{\frac{c \cdot r^2}{1960\,(F - c)}},
+\qquad
+I = \frac{F \cdot s^2}{8}
 $$
 
 where `F` = vanilla fade (`FNAM`), `r` = radius (`DATA\Radius`),
-`c` = cutoff (0.05 normally, 0.022 for shadow casters). Writes `F` back to
-`FNAM`, `s` to `DATA\FOV`, `c` to `DATA\Falloff Exponent`, and sets the
+`c` = cutoff (0.05 normally, 0.022 for shadow casters), and `I` = the
+radius-matched ISL fade. Writes `I` back to `FNAM` after the global intensity
+multiplier, `s` to `DATA\FOV`, `c` to `DATA\Falloff Exponent`, and sets the
 Inverse Square flag bit (`0x4000`) in `DATA\Flags`.
 
 **REFR pass** (runs lazily on `TESCellAttachDetachEvent`):

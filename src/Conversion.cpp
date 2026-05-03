@@ -16,6 +16,7 @@ namespace isl {
 
         std::mutex                          g_refrMutex;
         std::unordered_set<RE::FormID>      g_processedRefs;
+        std::unordered_set<RE::FormID>      g_convertedRefIDs;
         std::unordered_set<RE::FormID>      g_processedCells;
         std::unordered_set<RE::FormID>      g_convertedLightIDs;
         std::mutex                          g_convertedLightMutex;
@@ -29,6 +30,9 @@ namespace isl {
         // explosions, hazards, window/glow/fx editor IDs, or emittance sources.
         std::unordered_set<RE::FormID>      g_magicFXFormIDs;
         std::mutex                          g_magicFXMutex;
+
+        // Global intensity factor currently baked into converted LIGH fades.
+        std::atomic<float>                  g_appliedIntensityScale{ 1.0f };
 
         // Shadow-boost factor currently baked into converted LIGH fades.
         std::atomic<float>                  g_appliedShadowBoost{ 1.0f };
@@ -111,6 +115,62 @@ namespace isl {
                 return;
             std::scoped_lock lk(g_convertedLightMutex);
             g_convertedLightIDs.insert(id);
+        }
+
+        float ClampIntensityScale(float scale) noexcept
+        {
+            if (scale < 0.25f) return 0.25f;
+            if (scale > 8.0f) return 8.0f;
+            return scale;
+        }
+
+        std::uint32_t ScaleConvertedRefDeltas(float ratio, bool shadowOnly)
+        {
+            std::vector<RE::FormID> cellIDs;
+            std::unordered_set<RE::FormID> refIDs;
+            {
+                std::scoped_lock lk(g_refrMutex);
+                cellIDs.assign(g_processedCells.begin(), g_processedCells.end());
+                refIDs = g_convertedRefIDs;
+            }
+
+            std::uint32_t touched = 0;
+            for (const auto cellID : cellIDs) {
+                auto* cell = RE::TESForm::LookupByID<RE::TESObjectCELL>(cellID);
+                if (!cell)
+                    continue;
+
+                std::vector<RE::NiPointer<RE::TESObjectREFR>> refs;
+                {
+                    auto& rd = cell->GetRuntimeData();
+                    RE::BSSpinLockGuard lock(rd.spinLock);
+                    refs.reserve(rd.references.size());
+                    for (const auto& handle : rd.references)
+                        refs.emplace_back(handle);
+                }
+
+                for (const auto& handle : refs) {
+                    auto* refr = handle.get();
+                    if (!refr || !refIDs.contains(refr->formID))
+                        continue;
+
+                    if (shadowOnly) {
+                        auto* base = refr->GetBaseObject();
+                        auto* ligh = base ? base->As<RE::TESObjectLIGH>() : nullptr;
+                        if (!ligh || !IsShadowCaster(ligh->data.flags.underlying()))
+                            continue;
+                    }
+
+                    auto* xlig = refr->extraList.GetByType<RE::ExtraLightData>();
+                    if (!xlig || xlig->data.fov >= MaxSize)
+                        continue;
+
+                    xlig->data.fade *= ratio;
+                    ++touched;
+                }
+            }
+
+            return touched;
         }
 
         void AddLightID(std::unordered_set<RE::FormID>& ids, const RE::TESObjectLIGH* ligh)
@@ -241,6 +301,9 @@ namespace isl {
             else if (key == "boostShadow")        boostShadowCasters  = (val == "1" || val == "true");
             else if (key == "excludeLightPlacer") excludeLightPlacer  = (val == "1" || val == "true");
             else if (key == "excludeSpotLights")  excludeSpotLights   = (val == "1" || val == "true");
+            else if (key == "intensityScale") {
+                try { intensityScale = ClampIntensityScale(std::stof(val)); } catch (...) {}
+            }
             else if (key == "shadowBoost") {
                 try { shadowBoost = std::stof(val); } catch (...) {}
                 if (shadowBoost < 0.1f) shadowBoost = 0.1f;
@@ -269,6 +332,7 @@ namespace isl {
         out << "boostShadow="        << (boostShadowCasters ? "1" : "0") << '\n';
         out << "excludeLightPlacer=" << (excludeLightPlacer ? "1" : "0") << '\n';
         out << "excludeSpotLights="  << (excludeSpotLights  ? "1" : "0") << '\n';
+        out << "intensityScale="     << intensityScale                   << '\n';
         out << "shadowBoost="        << shadowBoost                      << '\n';
     }
 
@@ -417,6 +481,9 @@ namespace isl {
         const auto& lights = dh->GetFormArray<RE::TESObjectLIGH>();
         logger::info("[ISL] Converting {} LIGH forms...", lights.size());
 
+        const float intensityScale = ClampIntensityScale(g_config.intensityScale);
+        g_config.intensityScale = intensityScale;
+
         const float boost =
             g_config.boostShadowCasters ? std::max(0.0001f, g_config.shadowBoost)
                                         : 1.0f;
@@ -462,6 +529,7 @@ namespace isl {
                 continue;
             }
 
+            p.intensity *= intensityScale;
             if (IsShadowCaster(flagsRaw))
                 p.intensity *= boost;
 
@@ -482,11 +550,55 @@ namespace isl {
         g_stats.lighSkippedMagicFX    += skippedMagicFX;
         g_stats.lighSkippedSpot       += skippedSpot;
 
+        g_appliedIntensityScale.store(intensityScale, std::memory_order_release);
         g_appliedShadowBoost.store(boost, std::memory_order_release);
         g_lighPassDone.store(true, std::memory_order_release);
 
-        logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} magicFXSkipped={} spotSkipped={} boost={:.2f}",
-            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, boost);
+        logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} magicFXSkipped={} spotSkipped={} intensity={:.2f} boost={:.2f}",
+            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, intensityScale, boost);
+    }
+
+    // Live global intensity adjustment
+    void SetIntensityScale(float newScale)
+    {
+        newScale = ClampIntensityScale(newScale);
+
+        if (!g_lighPassDone.load(std::memory_order_acquire)) {
+            g_config.intensityScale = newScale;
+            return;
+        }
+
+        const float oldScale = g_appliedIntensityScale.load(std::memory_order_acquire);
+        if (std::fabs(newScale - oldScale) < 1e-4f) {
+            g_config.intensityScale = newScale;
+            return;
+        }
+
+        const float ratio = newScale / oldScale;
+
+        auto* dh = RE::TESDataHandler::GetSingleton();
+        if (!dh) {
+            logger::warn("[ISL] SetIntensityScale: no TESDataHandler.");
+            return;
+        }
+
+        std::uint32_t touched = 0;
+        for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
+            if (!ligh) continue;
+            if (!IsAlreadyISL(ligh->data.flags.underlying())) continue;
+            if (!IsPluginConvertedLight(ligh->formID)) continue;
+
+            ligh->fade *= ratio;
+            ++touched;
+        }
+        const auto touchedRefs = ScaleConvertedRefDeltas(ratio, false);
+
+        g_appliedIntensityScale.store(newScale, std::memory_order_release);
+        g_config.intensityScale = newScale;
+
+        logger::info(
+            "[ISL] SetIntensityScale: {:.2f} -> {:.2f} (ratio={:.3f}, ligh={} refr={})",
+            oldScale, newScale, ratio, touched, touchedRefs);
     }
 
     // Live shadow-boost adjustment
@@ -532,13 +644,14 @@ namespace isl {
             ligh->fade *= ratio;
             ++touched;
         }
+        const auto touchedRefs = ScaleConvertedRefDeltas(ratio, true);
 
         g_appliedShadowBoost.store(effectiveNew, std::memory_order_release);
         g_config.shadowBoost = newBoost;
 
         logger::info(
-            "[ISL] SetShadowBoost: {:.2f} -> {:.2f} (ratio={:.3f}, touched={})",
-            oldBoost, effectiveNew, ratio, touched);
+            "[ISL] SetShadowBoost: {:.2f} -> {:.2f} (ratio={:.3f}, ligh={} refr={})",
+            oldBoost, effectiveNew, ratio, touched, touchedRefs);
     }
 
     // REFR pass (per-attached-cell, lazy)
@@ -603,7 +716,7 @@ namespace isl {
             if (!hasRadiusOverride && !hasFadeOverride)
                 return;  // pure base inheritance
 
-            // Reconstruct vanilla F from the unboosted base fade, then apply placement overrides.
+            // Reconstruct vanilla F from radius-matched ISL fade, then apply placement overrides.
             const float c       = DefaultCutoff(baseFlags);
             const float baseI   = ligh->fade;         // post-boost ISL intensity
             const float baseS   = ligh->data.fov;     // ISL size
@@ -613,12 +726,15 @@ namespace isl {
             const float boost    = isShadow
                                        ? g_appliedShadowBoost.load(std::memory_order_acquire)
                                        : 1.0f;
+            const float intensityScale =
+                g_appliedIntensityScale.load(std::memory_order_acquire);
             if (!std::isfinite(baseI) || !std::isfinite(baseS) || baseS <= 0.0f) {
                 ++g_stats.refrSkippedMath;
                 return;
             }
 
-            const float Fbase = baseI / boost;
+            const float unscaledI = baseI / (boost * intensityScale);
+            const float Fbase = (unscaledI * 8.0f) / (baseS * baseS);
 
             const float rBase = static_cast<float>(ligh->data.radius);
             const float rOver = (xrds && xrds->radius > 0.0f) ? xrds->radius : rBase;
@@ -631,7 +747,7 @@ namespace isl {
                 return;
             }
 
-            float desiredI = p.intensity * boost;
+            float desiredI = p.intensity * intensityScale * boost;
             float desiredS = hasRadiusOverride ? p.size : baseS;
 
             // Sanity: reject non-finite or absurd values rather than bake them into the save.
@@ -647,6 +763,11 @@ namespace isl {
             // ISL semantics: ld.fov = absolute size override (0 = use base); ld.fade = intensity delta.
             ld->data.fov  = hasRadiusOverride ? desiredS : 0.0f;
             ld->data.fade = delta;
+
+            {
+                std::scoped_lock rl(g_refrMutex);
+                g_convertedRefIDs.insert(refr->formID);
+            }
 
             ++g_stats.refrConverted;
         }
@@ -745,6 +866,7 @@ namespace isl {
                 std::scoped_lock rl(g_refrMutex);
                 g_processedCells.clear();
                 g_processedRefs.clear();
+                g_convertedRefIDs.clear();
             }
             if (!g_lighPassDone.load(std::memory_order_acquire)) {
                 logger::warn("[ISL] LIGH pass not yet run at save load; running now.");
