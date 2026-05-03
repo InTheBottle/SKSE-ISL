@@ -174,6 +174,13 @@ namespace isl {
             return color.red != 0.0f || color.green != 0.0f || color.blue != 0.0f;
         }
 
+        bool IsExcludedLightEditorID(std::string_view id) noexcept
+        {
+            return ContainsNoCase(id, "glowfill") ||
+                   ContainsNoCase(id, "window") ||
+                   (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
+        }
+
         bool IsFXBulbFillOrEmittanceLight(const RE::TESObjectLIGH* ligh) noexcept
         {
             if (!ligh)
@@ -184,10 +191,26 @@ namespace isl {
                 return HasEmittanceColor(ligh);
 
             const std::string_view id{ editorID };
-            return ContainsNoCase(id, "glowfill") ||
-                   ContainsNoCase(id, "window") ||
-                   HasEmittanceColor(ligh) ||
-                   (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
+            return IsExcludedLightEditorID(id) || HasEmittanceColor(ligh);
+        }
+
+        void AddEditorIDExcludedLightIDs(
+            std::unordered_set<RE::FormID>& ids,
+            std::size_t& count)
+        {
+            const auto& [map, lock] = RE::TESForm::GetAllFormsByEditorID();
+            [[maybe_unused]] const RE::BSReadLockGuard guard{ lock };
+            if (!map)
+                return;
+
+            for (const auto& [editorID, form] : *map) {
+                auto* ligh = form ? form->As<RE::TESObjectLIGH>() : nullptr;
+                if (!ligh || !IsExcludedLightEditorID(editorID))
+                    continue;
+
+                if (ids.insert(ligh->formID).second)
+                    ++count;
+            }
         }
 
         void LoadAllExclusions()
@@ -351,6 +374,8 @@ namespace isl {
             AddLightID(collected, hazard->data.light);
             hazardLights += collected.size() - before;
         }
+
+        AddEditorIDExcludedLightIDs(collected, nameLights);
 
         for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
             if (!IsFXBulbFillOrEmittanceLight(ligh))
