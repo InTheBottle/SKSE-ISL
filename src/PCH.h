@@ -1,7 +1,5 @@
 #pragma once
 
-// CommonLibSSE-NG must be included BEFORE any direct Windows API include;
-// it pulls in its own sanitized Windows wrappers.
 #include <RE/Skyrim.h>
 #include <REL/Relocation.h>
 #include <SKSE/SKSE.h>
