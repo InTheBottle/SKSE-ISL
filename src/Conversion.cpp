@@ -26,7 +26,7 @@ namespace isl {
         std::mutex                          g_lpMutex;
 
         // Dynamic FX LIGH bases referenced by magic effects, projectiles,
-        // explosions, hazards, or named like editor-only bulbs/fill lights.
+        // explosions, hazards, named editor bulbs/fills, or emittance sources.
         std::unordered_set<RE::FormID>      g_magicFXFormIDs;
         std::mutex                          g_magicFXMutex;
 
@@ -165,18 +165,28 @@ namespace isl {
             return false;
         }
 
-        bool IsFXBulbOrFillLight(const RE::TESObjectLIGH* ligh) noexcept
+        bool HasEmittanceColor(const RE::TESObjectLIGH* ligh) noexcept
+        {
+            if (!ligh)
+                return false;
+
+            const auto& color = ligh->emittanceColor;
+            return color.red != 0.0f || color.green != 0.0f || color.blue != 0.0f;
+        }
+
+        bool IsFXBulbFillOrEmittanceLight(const RE::TESObjectLIGH* ligh) noexcept
         {
             if (!ligh)
                 return false;
 
             const char* editorID = ligh->GetFormEditorID();
             if (!editorID || editorID[0] == '\0')
-                return false;
+                return HasEmittanceColor(ligh);
 
             const std::string_view id{ editorID };
             return ContainsNoCase(id, "glowfill") ||
                    ContainsNoCase(id, "bulb") ||
+                   HasEmittanceColor(ligh) ||
                    (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
         }
 
@@ -343,7 +353,7 @@ namespace isl {
         }
 
         for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
-            if (!IsFXBulbOrFillLight(ligh))
+            if (!IsFXBulbFillOrEmittanceLight(ligh))
                 continue;
 
             if (collected.insert(ligh->formID).second)
