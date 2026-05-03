@@ -42,6 +42,7 @@ namespace isl {
     struct Config {
         bool  enabled             = true;
         bool  convertRefrs        = true;
+        bool  radiusMatchedFade   = true;
         bool  boostShadowCasters  = true;
         bool  excludeLightPlacer  = true;
         bool  excludeSpotLights   = true;

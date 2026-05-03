@@ -34,6 +34,9 @@ namespace isl {
         // Global intensity factor currently baked into converted LIGH fades.
         std::atomic<float>                  g_appliedIntensityScale{ 1.0f };
 
+        // True when converted LIGH fades use radius-matched ISL intensity.
+        std::atomic<bool>                   g_appliedRadiusMatchedFade{ true };
+
         // Shadow-boost factor currently baked into converted LIGH fades.
         std::atomic<float>                  g_appliedShadowBoost{ 1.0f };
 
@@ -298,6 +301,7 @@ namespace isl {
             const auto val = line.substr(eq + 1);
             if (key == "enabled")                 enabled             = (val == "1" || val == "true");
             else if (key == "convertRefrs")       convertRefrs        = (val == "1" || val == "true");
+            else if (key == "radiusMatchedFade")  radiusMatchedFade   = (val == "1" || val == "true");
             else if (key == "boostShadow")        boostShadowCasters  = (val == "1" || val == "true");
             else if (key == "excludeLightPlacer") excludeLightPlacer  = (val == "1" || val == "true");
             else if (key == "excludeSpotLights")  excludeSpotLights   = (val == "1" || val == "true");
@@ -329,6 +333,7 @@ namespace isl {
         }
         out << "enabled="            << (enabled            ? "1" : "0") << '\n';
         out << "convertRefrs="       << (convertRefrs       ? "1" : "0") << '\n';
+        out << "radiusMatchedFade="  << (radiusMatchedFade  ? "1" : "0") << '\n';
         out << "boostShadow="        << (boostShadowCasters ? "1" : "0") << '\n';
         out << "excludeLightPlacer=" << (excludeLightPlacer ? "1" : "0") << '\n';
         out << "excludeSpotLights="  << (excludeSpotLights  ? "1" : "0") << '\n';
@@ -529,6 +534,9 @@ namespace isl {
                 continue;
             }
 
+            if (!g_config.radiusMatchedFade)
+                p.intensity = F;
+
             p.intensity *= intensityScale;
             if (IsShadowCaster(flagsRaw))
                 p.intensity *= boost;
@@ -551,11 +559,12 @@ namespace isl {
         g_stats.lighSkippedSpot       += skippedSpot;
 
         g_appliedIntensityScale.store(intensityScale, std::memory_order_release);
+        g_appliedRadiusMatchedFade.store(g_config.radiusMatchedFade, std::memory_order_release);
         g_appliedShadowBoost.store(boost, std::memory_order_release);
         g_lighPassDone.store(true, std::memory_order_release);
 
-        logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} magicFXSkipped={} spotSkipped={} intensity={:.2f} boost={:.2f}",
-            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, intensityScale, boost);
+        logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} magicFXSkipped={} spotSkipped={} radiusMatched={} intensity={:.2f} boost={:.2f}",
+            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, g_config.radiusMatchedFade, intensityScale, boost);
     }
 
     // Live global intensity adjustment
@@ -728,13 +737,15 @@ namespace isl {
                                        : 1.0f;
             const float intensityScale =
                 g_appliedIntensityScale.load(std::memory_order_acquire);
+            const bool radiusMatched =
+                g_appliedRadiusMatchedFade.load(std::memory_order_acquire);
             if (!std::isfinite(baseI) || !std::isfinite(baseS) || baseS <= 0.0f) {
                 ++g_stats.refrSkippedMath;
                 return;
             }
 
             const float unscaledI = baseI / (boost * intensityScale);
-            const float Fbase = (unscaledI * 8.0f) / (baseS * baseS);
+            const float Fbase = radiusMatched ? (unscaledI * 8.0f) / (baseS * baseS) : unscaledI;
 
             const float rBase = static_cast<float>(ligh->data.radius);
             const float rOver = (xrds && xrds->radius > 0.0f) ? xrds->radius : rBase;
@@ -746,6 +757,8 @@ namespace isl {
                 ++g_stats.refrSkippedMath;
                 return;
             }
+            if (!radiusMatched)
+                p.intensity = Feff;
 
             float desiredI = p.intensity * intensityScale * boost;
             float desiredS = hasRadiusOverride ? p.size : baseS;

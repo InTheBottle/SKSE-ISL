@@ -85,9 +85,11 @@ $$
 
 where `F` = vanilla fade (`FNAM`), `r` = radius (`DATA\Radius`),
 `c` = cutoff (0.05 normally, 0.022 for shadow casters), and `I` = the
-radius-matched ISL fade. Writes `I` back to `FNAM` after the global intensity
-multiplier, `s` to `DATA\FOV`, `c` to `DATA\Falloff Exponent`, and sets the
-Inverse Square flag bit (`0x4000`) in `DATA\Flags`.
+radius-matched ISL fade. Writes either `I` or the original `F` back to `FNAM`
+after the global intensity multiplier, `s` to `DATA\FOV`, `c` to
+`DATA\Falloff Exponent`, and sets the Inverse Square flag bit (`0x4000`) in
+`DATA\Flags`. Radius matching is enabled by default; changing that mode takes
+effect on the next data load.
 
 **REFR pass** (runs lazily on `TESCellAttachDetachEvent`):
 For every placed light in a newly-attached cell, reads `XSCL`, `ExtraRadius`

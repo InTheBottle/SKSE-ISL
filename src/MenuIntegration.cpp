@@ -46,6 +46,7 @@ namespace isl {
 
             DrawSavedCheckbox("Enable conversion next load", cfg.enabled);
             DrawSavedCheckbox("Convert placed-light overrides", cfg.convertRefrs);
+            DrawSavedCheckbox("Match vanilla radius (next load)", cfg.radiusMatchedFade);
 
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Intensity");
