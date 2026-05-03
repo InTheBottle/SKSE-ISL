@@ -15,8 +15,6 @@ namespace isl {
         const float s = std::sqrt(s2);
         if (s >= MaxSize)
             return false;
-        // Peak-match: ISL intensity at d=0 equals vanilla fade.
-        // Size s already encodes the cutoff distance, so no extra scaling on I.
         out.intensity = F;
         out.size      = s;
         out.cutoff    = c;

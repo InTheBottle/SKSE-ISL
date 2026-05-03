@@ -61,8 +61,7 @@ namespace isl {
     // bases are skipped everywhere (LIGH pass, REFR pass, live boost).
     void LoadLightPlacerExclusions();
 
-    // Collects magic/projectile/explosion/hazard lights and conservative
-    // FX bulb/fill editor-ID matches; these bases are never converted.
+    // Collects magic/projectile/explosion/hazard lights and conservative editor-ID/emittance skips.
     void LoadMagicFXExclusions();
 
     // Rewrites every TESObjectLIGH to ISL. Idempotent via the ISL flag bit.

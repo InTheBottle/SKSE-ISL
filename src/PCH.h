@@ -8,7 +8,6 @@
 
 // STL
 #include <atomic>
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <mutex>
@@ -22,4 +21,3 @@
 #include <spdlog/sinks/basic_file_sink.h>
 
 namespace logger = SKSE::log;
-using namespace std::literals;

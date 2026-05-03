@@ -75,16 +75,14 @@ directories:
 **LIGH pass** (runs on `kDataLoaded`, and on demand from the UI):
 Walks every `TESObjectLIGH` in the data handler. For each one not already
 flagged Inverse Square, and not excluded as a LightPlacer, magic, projectile,
-explosion, hazard, FX bulb, or glow-fill light, it solves
+explosion, hazard, window/glow/fx editor-ID match, or emittance light, it solves
 
 $$
-s = \sqrt{\frac{c \cdot r^2}{1960\,(F - c)}},
-\qquad
-I = \frac{F \cdot c \cdot r^2}{15680\,(F - c)}
+s = \sqrt{\frac{c \cdot r^2}{1960\,(F - c)}}
 $$
 
 where `F` = vanilla fade (`FNAM`), `r` = radius (`DATA\Radius`),
-`c` = cutoff (0.05 normally, 0.022 for shadow casters). Writes `I` back to
+`c` = cutoff (0.05 normally, 0.022 for shadow casters). Writes `F` back to
 `FNAM`, `s` to `DATA\FOV`, `c` to `DATA\Falloff Exponent`, and sets the
 Inverse Square flag bit (`0x4000`) in `DATA\Flags`.
 
@@ -98,10 +96,9 @@ fields under ISL semantics:
 
 ## Limitations / known caveats
 
-- REFR pass is heuristic: it treats per-placement vanilla fade offsets as
-  relative deltas rather than reconstructing the exact vanilla `F`. For
-  most placements the visual difference is negligible. Disable
-  `Convert per-placement REFR overrides` in the UI if you see artifacts.
-- Magic, projectile, explosion, hazard, FX bulb, and glow-fill lights are left
-  untouched because those bases are often spawned dynamically or attached to
-  actor spell visuals.
+- REFR pass is heuristic because already-saved `XLIG` overrides can be
+  ambiguous. Disable `Convert per-placement REFR overrides` in the UI if you
+  see artifacts.
+- Magic, projectile, explosion, hazard, window/glow/fx editor-ID matches, and
+  emittance lights are left untouched because those bases are often spawned
+  dynamically, attached to actor spell visuals, or authored as mesh glow.

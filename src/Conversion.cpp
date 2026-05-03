@@ -26,7 +26,7 @@ namespace isl {
         std::mutex                          g_lpMutex;
 
         // Dynamic FX LIGH bases referenced by magic effects, projectiles,
-        // explosions, hazards, named editor bulbs/fills, or emittance sources.
+        // explosions, hazards, window/glow/fx editor IDs, or emittance sources.
         std::unordered_set<RE::FormID>      g_magicFXFormIDs;
         std::mutex                          g_magicFXMutex;
 
@@ -181,7 +181,7 @@ namespace isl {
                    (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
         }
 
-        bool IsFXBulbFillOrEmittanceLight(const RE::TESObjectLIGH* ligh) noexcept
+        bool IsNamedOrEmittanceExcludedLight(const RE::TESObjectLIGH* ligh) noexcept
         {
             if (!ligh)
                 return false;
@@ -251,9 +251,19 @@ namespace isl {
 
     void Config::Save() const
     {
-        std::ofstream out(std::string{ kConfigPath }, std::ios::trunc);
-        if (!out)
+        const std::filesystem::path configPath{ std::string{ kConfigPath } };
+        std::error_code ec;
+        std::filesystem::create_directories(configPath.parent_path(), ec);
+        if (ec) {
+            logger::warn("[ISL] Failed to create config directory: {}", ec.message());
             return;
+        }
+
+        std::ofstream out(configPath, std::ios::trunc);
+        if (!out) {
+            logger::warn("[ISL] Failed to save config to {}", kConfigPath);
+            return;
+        }
         out << "enabled="            << (enabled            ? "1" : "0") << '\n';
         out << "convertRefrs="       << (convertRefrs       ? "1" : "0") << '\n';
         out << "boostShadow="        << (boostShadowCasters ? "1" : "0") << '\n';
@@ -378,7 +388,7 @@ namespace isl {
         AddEditorIDExcludedLightIDs(collected, nameLights);
 
         for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
-            if (!IsFXBulbFillOrEmittanceLight(ligh))
+            if (!IsNamedOrEmittanceExcludedLight(ligh))
                 continue;
 
             if (collected.insert(ligh->formID).second)
@@ -593,11 +603,7 @@ namespace isl {
             if (!hasRadiusOverride && !hasFadeOverride)
                 return;  // pure base inheritance
 
-            // Per-placement re-derivation in consistent units:
-            //   1. un-boost baseI to true ISL intensity
-            //   2. reconstruct vanilla F via peak-match: F = I_isl
-            //   3. apply fadeOff / rOver / scale in vanilla space
-            //   4. re-run ComputeISL; re-apply boost at the end
+            // Reconstruct vanilla F from the unboosted base fade, then apply placement overrides.
             const float c       = DefaultCutoff(baseFlags);
             const float baseI   = ligh->fade;         // post-boost ISL intensity
             const float baseS   = ligh->data.fov;     // ISL size
@@ -607,7 +613,12 @@ namespace isl {
             const float boost    = isShadow
                                        ? g_appliedShadowBoost.load(std::memory_order_acquire)
                                        : 1.0f;
-            const float Fbase    = baseI / boost;
+            if (!std::isfinite(baseI) || !std::isfinite(baseS) || baseS <= 0.0f) {
+                ++g_stats.refrSkippedMath;
+                return;
+            }
+
+            const float Fbase = baseI / boost;
 
             const float rBase = static_cast<float>(ligh->data.radius);
             const float rOver = (xrds && xrds->radius > 0.0f) ? xrds->radius : rBase;
