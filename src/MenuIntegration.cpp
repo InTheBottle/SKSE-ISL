@@ -117,14 +117,13 @@ namespace isl {
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Actions");
 
-            if (ImGuiMCP::Button("Convert base lights now")) {
+            if (ImGuiMCP::Button("Convert remaining bases")) {
                 ConvertAllLights();
             }
             ImGuiMCP::SameLine();
             if (ImGuiMCP::Button("Reset counters")) {
                 stats.Reset();
             }
-
         }
     }  // namespace
 

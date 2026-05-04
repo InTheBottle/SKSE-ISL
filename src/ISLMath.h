@@ -14,6 +14,8 @@ namespace isl {
     // Numerical guard for F barely above c.
     inline constexpr float MinFmc         = 0.001f;
 
+    inline constexpr float AuthoredEndCap = -7771.337f;
+
     // LIGH DATA flag bits (xEdit names).
     inline constexpr std::uint32_t FlagInverseSquare = 0x00004000;  // "Unknown 14"
     inline constexpr std::uint32_t FlagShadowMask    = 0x00001C00;  // Spotlight/Hemisphere/Omni shadow

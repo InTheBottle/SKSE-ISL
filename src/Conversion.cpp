@@ -59,6 +59,11 @@ namespace isl {
             return ld;
         }
 
+        bool IsISLAuthored(const RE::ExtraLightData* xlig) noexcept
+        {
+            return xlig && xlig->data.endDistanceCap == AuthoredEndCap;
+        }
+
         RE::ExtraRadius* GetExtraRadius(RE::TESObjectREFR* refr)
         {
             return refr->extraList.GetByType<RE::ExtraRadius>();
@@ -125,6 +130,13 @@ namespace isl {
             if (scale < 0.25f) return 0.25f;
             if (scale > 8.0f) return 8.0f;
             return scale;
+        }
+
+        float ClampShadowBoost(float boost) noexcept
+        {
+            if (boost < 0.1f) return 0.1f;
+            if (boost > 64.0f) return 64.0f;
+            return boost;
         }
 
         enum class LiveScaleTarget
@@ -195,7 +207,7 @@ namespace isl {
                         continue;
 
                     auto* xlig = refr->extraList.GetByType<RE::ExtraLightData>();
-                    if (!xlig || xlig->data.fov >= MaxSize)
+                    if (!IsISLAuthored(xlig))
                         continue;
 
                     xlig->data.fade *= ratio;
@@ -339,9 +351,7 @@ namespace isl {
                 try { intensityScale = ClampIntensityScale(std::stof(val)); } catch (...) {}
             }
             else if (key == "shadowBoost") {
-                try { shadowBoost = std::stof(val); } catch (...) {}
-                if (shadowBoost < 0.1f) shadowBoost = 0.1f;
-                if (shadowBoost > 64.0f) shadowBoost = 64.0f;
+                try { shadowBoost = ClampShadowBoost(std::stof(val)); } catch (...) {}
             }
         }
     }
@@ -516,12 +526,21 @@ namespace isl {
         const auto& lights = dh->GetFormArray<RE::TESObjectLIGH>();
         logger::info("[ISL] Converting {} LIGH forms...", lights.size());
 
-        const float intensityScale = ClampIntensityScale(g_config.intensityScale);
-        g_config.intensityScale = intensityScale;
+        const bool firstPass = !g_lighPassDone.load(std::memory_order_acquire);
+        if (firstPass) {
+            g_config.intensityScale = ClampIntensityScale(g_config.intensityScale);
+            g_config.shadowBoost = ClampShadowBoost(g_config.shadowBoost);
+        }
 
-        const float boost =
-            g_config.boostShadowCasters ? std::max(0.0001f, g_config.shadowBoost)
-                                        : 1.0f;
+        const bool radiusMatched = firstPass
+                                       ? g_config.radiusMatchedFade
+                                       : g_appliedRadiusMatchedFade.load(std::memory_order_acquire);
+        const float intensityScale = firstPass
+                                         ? g_config.intensityScale
+                                         : g_appliedIntensityScale.load(std::memory_order_acquire);
+        const float boost = firstPass
+                                ? (g_config.boostShadowCasters ? g_config.shadowBoost : 1.0f)
+                                : g_appliedShadowBoost.load(std::memory_order_acquire);
 
         std::uint32_t converted = 0, skippedISL = 0, skippedMath = 0,
                       skippedLP = 0, skippedMagicFX = 0, skippedSpot = 0;
@@ -564,7 +583,7 @@ namespace isl {
                 continue;
             }
 
-            if (!g_config.radiusMatchedFade)
+            if (!radiusMatched)
                 p.intensity = F;
 
             const bool isShadow = IsShadowCaster(flagsRaw);
@@ -590,13 +609,15 @@ namespace isl {
         g_stats.lighSkippedMagicFX    += skippedMagicFX;
         g_stats.lighSkippedSpot       += skippedSpot;
 
-        g_appliedIntensityScale.store(intensityScale, std::memory_order_release);
-        g_appliedRadiusMatchedFade.store(g_config.radiusMatchedFade, std::memory_order_release);
-        g_appliedShadowBoost.store(boost, std::memory_order_release);
+        if (firstPass) {
+            g_appliedIntensityScale.store(intensityScale, std::memory_order_release);
+            g_appliedRadiusMatchedFade.store(radiusMatched, std::memory_order_release);
+            g_appliedShadowBoost.store(boost, std::memory_order_release);
+        }
         g_lighPassDone.store(true, std::memory_order_release);
 
         logger::info("[ISL]   converted={} alreadyISL={} mathSkipped={} lpSkipped={} magicFXSkipped={} spotSkipped={} radiusMatched={} intensity={:.2f} boost={:.2f}",
-            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, g_config.radiusMatchedFade, intensityScale, boost);
+            converted, skippedISL, skippedMath, skippedLP, skippedMagicFX, skippedSpot, radiusMatched, intensityScale, boost);
     }
 
     // Live global intensity adjustment
@@ -644,7 +665,7 @@ namespace isl {
     // Live shadow-boost adjustment
     void SetShadowBoost(float newBoost)
     {
-        if (newBoost < 0.0001f) newBoost = 0.0001f;
+        newBoost = ClampShadowBoost(newBoost);
 
         // LIGH pass hasn't run yet: just stash; it'll pick up on first run.
         if (!g_lighPassDone.load(std::memory_order_acquire)) {
@@ -736,13 +757,12 @@ namespace isl {
             auto* xrds = GetExtraRadius(refr);
             auto* xlig = refr->extraList.GetByType<RE::ExtraLightData>();
 
+            if (IsISLAuthored(xlig))
+                return;
+
             const bool hasRadiusOverride =
                 (xrds && xrds->radius > 0.0f) || scale != 1.0f;
             const bool hasFadeOverride = xlig && xlig->data.fade != 0.0f;
-
-            // Vanilla/unset XLIG has fov == 90. Skip to avoid double-applying our delta on save reload.
-            if (xlig && xlig->data.fov < MaxSize)
-                return;
 
             if (!hasRadiusOverride && !hasFadeOverride)
                 return;  // pure base inheritance
@@ -796,8 +816,11 @@ namespace isl {
 
             auto* ld = GetOrCreateExtraLightData(refr);
             // ISL semantics: ld.fov = absolute size override (0 = use base); ld.fade = intensity delta.
-            ld->data.fov  = hasRadiusOverride ? desiredS : 0.0f;
-            ld->data.fade = delta;
+            // endDistanceCap carries our authoring marker so we can identify our own XLIGs
+            // across save/load (changeforms preserve the field).
+            ld->data.fov            = hasRadiusOverride ? desiredS : 0.0f;
+            ld->data.fade           = delta;
+            ld->data.endDistanceCap = AuthoredEndCap;
 
             {
                 std::scoped_lock rl(g_refrMutex);
@@ -895,8 +918,7 @@ namespace isl {
         case SKSE::MessagingInterface::kPostLoadGame:
         case SKSE::MessagingInterface::kNewGame:
             logger::info("[ISL] save/new game message received");
-            // Clear both dedup sets: loading a different save may restore refs to pre-conversion state.
-            // ConvertOneRef is idempotent via the xlig->fov < MaxSize marker, so re-processing is safe.
+
             {
                 std::scoped_lock rl(g_refrMutex);
                 g_processedCells.clear();
