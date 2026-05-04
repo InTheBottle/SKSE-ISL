@@ -69,10 +69,10 @@ namespace isl {
             return refr->extraList.GetByType<RE::ExtraRadius>();
         }
 
-        float GetRefScale(const RE::TESObjectREFR* refr) noexcept
+        float GetRefScale(RE::TESObjectREFR* refr) noexcept
         {
             // TESObjectREFR::refScale is uint16 storing scale*100.
-            const auto& rd = const_cast<RE::TESObjectREFR*>(refr)->GetReferenceRuntimeData();
+            const auto& rd = refr->GetReferenceRuntimeData();
             const float s = static_cast<float>(rd.refScale) / 100.0f;
             return s > 0.0f ? s : 1.0f;
         }
@@ -288,19 +288,6 @@ namespace isl {
                    (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
         }
 
-        bool IsNamedOrEmittanceExcludedLight(const RE::TESObjectLIGH* ligh) noexcept
-        {
-            if (!ligh)
-                return false;
-
-            const char* editorID = ligh->GetFormEditorID();
-            if (!editorID || editorID[0] == '\0')
-                return HasEmittanceColor(ligh);
-
-            const std::string_view id{ editorID };
-            return IsExcludedLightEditorID(id) || HasEmittanceColor(ligh);
-        }
-
         void AddEditorIDExcludedLightIDs(
             std::unordered_set<RE::FormID>& ids,
             std::size_t& count)
@@ -462,7 +449,7 @@ namespace isl {
         }
 
         std::size_t mgefLights = 0, projLights = 0, explLights = 0,
-                    hazardLights = 0, nameLights = 0;
+                    hazardLights = 0, nameLights = 0, emittanceLights = 0;
 
         for (auto* mgef : dh->GetFormArray<RE::EffectSetting>()) {
             if (!mgef)
@@ -499,19 +486,28 @@ namespace isl {
         AddEditorIDExcludedLightIDs(collected, nameLights);
 
         for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
-            if (!IsNamedOrEmittanceExcludedLight(ligh))
+            if (!ligh)
                 continue;
 
-            if (collected.insert(ligh->formID).second)
-                ++nameLights;
+            const char* editorID = ligh->GetFormEditorID();
+            const std::string_view id =
+                (editorID && editorID[0]) ? std::string_view{ editorID } : std::string_view{};
+
+            if (!id.empty() && IsExcludedLightEditorID(id)) {
+                if (collected.insert(ligh->formID).second)
+                    ++nameLights;
+            } else if (HasEmittanceColor(ligh)) {
+                if (collected.insert(ligh->formID).second)
+                    ++emittanceLights;
+            }
         }
 
         {
             std::scoped_lock lk(g_magicFXMutex);
             g_magicFXFormIDs = std::move(collected);
             logger::info(
-                "[ISL] Magic/FX light scan: mgef={} projectile={} explosion={} hazard={} nameMatch={} excludedBases={}",
-                mgefLights, projLights, explLights, hazardLights, nameLights, g_magicFXFormIDs.size());
+                "[ISL] Magic/FX light scan: mgef={} projectile={} explosion={} hazard={} nameMatch={} emittance={} excludedBases={}",
+                mgefLights, projLights, explLights, hazardLights, nameLights, emittanceLights, g_magicFXFormIDs.size());
         }
     }
 
