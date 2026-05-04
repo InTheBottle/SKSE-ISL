@@ -149,13 +149,10 @@ namespace isl {
 
         bool IsConvertedLightEligible(const RE::TESObjectLIGH* ligh, std::uint32_t flags) noexcept
         {
+
             if (!ligh || !IsAlreadyISL(flags) || !IsPluginConvertedLight(ligh->formID))
                 return false;
             if (IsSpotLight(flags))
-                return false;
-            if (g_config.excludeLightPlacer && IsLightPlacerExcluded(ligh->formID))
-                return false;
-            if (IsMagicFXExcluded(ligh->formID))
                 return false;
             return true;
         }
@@ -272,20 +269,15 @@ namespace isl {
             return false;
         }
 
-        bool HasEmittanceColor(const RE::TESObjectLIGH* ligh) noexcept
-        {
-            if (!ligh)
-                return false;
-
-            const auto& color = ligh->emittanceColor;
-            return color.red != 0.0f || color.green != 0.0f || color.blue != 0.0f;
-        }
-
         bool IsExcludedLightEditorID(std::string_view id) noexcept
         {
             return ContainsNoCase(id, "glowfill") ||
                    ContainsNoCase(id, "window") ||
-                   (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light"));
+                   (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light")) ||
+                   // SCS-ISL keeps a hardcoded per-light override for these
+                   // decorative bulbs that overrides our writes per-frame, so
+                   // the slider can never reach them. Stay out of their way.
+                   ContainsNoCase(id, "defaultgreen");
         }
 
         void AddEditorIDExcludedLightIDs(
@@ -449,7 +441,7 @@ namespace isl {
         }
 
         std::size_t mgefLights = 0, projLights = 0, explLights = 0,
-                    hazardLights = 0, nameLights = 0, emittanceLights = 0;
+                    hazardLights = 0, nameLights = 0;
 
         for (auto* mgef : dh->GetFormArray<RE::EffectSetting>()) {
             if (!mgef)
@@ -485,29 +477,12 @@ namespace isl {
 
         AddEditorIDExcludedLightIDs(collected, nameLights);
 
-        for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
-            if (!ligh)
-                continue;
-
-            const char* editorID = ligh->GetFormEditorID();
-            const std::string_view id =
-                (editorID && editorID[0]) ? std::string_view{ editorID } : std::string_view{};
-
-            if (!id.empty() && IsExcludedLightEditorID(id)) {
-                if (collected.insert(ligh->formID).second)
-                    ++nameLights;
-            } else if (HasEmittanceColor(ligh)) {
-                if (collected.insert(ligh->formID).second)
-                    ++emittanceLights;
-            }
-        }
-
         {
             std::scoped_lock lk(g_magicFXMutex);
             g_magicFXFormIDs = std::move(collected);
             logger::info(
-                "[ISL] Magic/FX light scan: mgef={} projectile={} explosion={} hazard={} nameMatch={} emittance={} excludedBases={}",
-                mgefLights, projLights, explLights, hazardLights, nameLights, emittanceLights, g_magicFXFormIDs.size());
+                "[ISL] Magic/FX light scan: mgef={} projectile={} explosion={} hazard={} nameMatch={} excludedBases={}",
+                mgefLights, projLights, explLights, hazardLights, nameLights, g_magicFXFormIDs.size());
         }
     }
 
@@ -547,18 +522,6 @@ namespace isl {
             if (!ligh)
                 continue;
 
-            if (g_config.excludeLightPlacer &&
-                IsLightPlacerExcluded(ligh->formID))
-            {
-                ++skippedLP;
-                continue;
-            }
-
-            if (IsMagicFXExcluded(ligh->formID)) {
-                ++skippedMagicFX;
-                continue;
-            }
-
             const auto flagsRaw = ligh->data.flags.underlying();
 
             if (IsSpotLight(flagsRaw)) {
@@ -568,6 +531,25 @@ namespace isl {
 
             if (IsAlreadyISL(flagsRaw)) {
                 ++skippedISL;
+                if (!IsPluginConvertedLight(ligh->formID)) {
+                    const bool isShadow = IsShadowCaster(flagsRaw);
+                    const float scale = isShadow ? boost : intensityScale;
+                    if (scale != 1.0f && std::isfinite(ligh->fade) && ligh->fade > 0.0f)
+                        ligh->fade *= scale;
+                    MarkPluginConvertedLight(ligh->formID);
+                }
+                continue;
+            }
+
+            if (g_config.excludeLightPlacer &&
+                IsLightPlacerExcluded(ligh->formID))
+            {
+                ++skippedLP;
+                continue;
+            }
+
+            if (IsMagicFXExcluded(ligh->formID)) {
+                ++skippedMagicFX;
                 continue;
             }
 
