@@ -85,8 +85,6 @@ namespace isl {
                 LoadLightPlacerExclusions();
             }
 
-            DrawSavedCheckbox("Exclude spotlights", cfg.excludeSpotLights);
-
             ImGuiMCP::Spacing();
             ImGuiMCP::SeparatorText("Session stats");
 

@@ -86,8 +86,10 @@ namespace isl {
             return true;
         }
 
-        // Persistent refs serialize ExtraLightData into saves forever and never cell-reset.
-        // Skipping them means our mod is fully reversible on uninstall.
+        // Persistent refs serialize ExtraLightData into saves forever and never cell-reset,
+        // so skipping them avoids polluting saves with deltas we cannot reliably undo.
+        // Non-persistent refs in cells attached at save time still write their XLIG into
+        // the save's changeform, but those eventually cell-reset on game-time elapse.
         bool IsPersistent(const RE::TESObjectREFR* refr) noexcept
         {
             return (refr->GetFormFlags() & RE::TESForm::RecordFlags::kPersistent) != 0;
@@ -135,7 +137,7 @@ namespace isl {
         float ClampShadowBoost(float boost) noexcept
         {
             if (boost < 0.1f) return 0.1f;
-            if (boost > 64.0f) return 64.0f;
+            if (boost > 32.0f) return 32.0f;
             return boost;
         }
 
@@ -149,7 +151,7 @@ namespace isl {
         {
             if (!ligh || !IsAlreadyISL(flags) || !IsPluginConvertedLight(ligh->formID))
                 return false;
-            if (g_config.excludeSpotLights && IsSpotLight(flags))
+            if (IsSpotLight(flags))
                 return false;
             if (g_config.excludeLightPlacer && IsLightPlacerExcluded(ligh->formID))
                 return false;
@@ -389,9 +391,9 @@ namespace isl {
         const fs::path root{ "Data/LightPlacer" };
         std::error_code ec;
         if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) {
-            logger::info("[ISL] LightPlacer folder not found - skipping exclusion scan.");
-            std::scoped_lock lk(g_lpMutex);
-            g_lpFormIDs.clear();
+            // Don't wipe a previously-built set on rescan — a missing folder is
+            // more likely a user mistake than a real "no exclusions" signal.
+            logger::info("[ISL] LightPlacer folder not found - keeping existing exclusion set.");
             return;
         }
 
@@ -563,7 +565,7 @@ namespace isl {
 
             const auto flagsRaw = ligh->data.flags.underlying();
 
-            if (g_config.excludeSpotLights && IsSpotLight(flagsRaw)) {
+            if (IsSpotLight(flagsRaw)) {
                 ++skippedSpot;
                 continue;
             }
@@ -735,7 +737,8 @@ namespace isl {
 
             const auto baseFlags = ligh->data.flags.underlying();
 
-            if (g_config.excludeSpotLights && IsSpotLight(baseFlags)) {
+            // See ConvertAllLights: spot lights are unconditionally excluded.
+            if (IsSpotLight(baseFlags)) {
                 ++g_stats.refrSkippedSpot;
                 return;
             }
@@ -750,6 +753,11 @@ namespace isl {
             // Their ChangeForm is kept forever, so our delta would pollute saves post-uninstall.
             if (IsPersistent(refr)) {
                 ++g_stats.refrSkippedPersistent;
+                return;
+            }
+
+            if (refr->extraList.HasType<RE::ExtraEmittanceSource>()) {
+                ++g_stats.refrSkippedMagicFX;
                 return;
             }
 
@@ -792,7 +800,8 @@ namespace isl {
             const float rBase = static_cast<float>(ligh->data.radius);
             const float rOver = (xrds && xrds->radius > 0.0f) ? xrds->radius : rBase;
             const float rEff  = rOver * scale;
-            const float Feff  = Fbase + fadeOff;
+            // Vanilla XLIG.fade is a multiplier on FNAM; fade <= 0 means "no override".
+            const float Feff  = (fadeOff > 0.0f) ? Fbase * fadeOff : Fbase;
 
             ISLParams p{};
             if (!ComputeISL(Feff, rEff, c, p)) {
