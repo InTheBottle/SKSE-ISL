@@ -764,6 +764,9 @@ namespace isl {
             if (IsISLAuthored(xlig))
                 return;
 
+            if (xlig && xlig->data.fov < MaxSize)
+                return;
+
             const bool hasRadiusOverride =
                 (xrds && xrds->radius > 0.0f) || scale != 1.0f;
             const bool hasFadeOverride = xlig && xlig->data.fade != 0.0f;
