@@ -127,7 +127,39 @@ namespace isl {
             return scale;
         }
 
-        std::uint32_t ScaleConvertedRefDeltas(float ratio, bool shadowOnly)
+        enum class LiveScaleTarget
+        {
+            GlobalIntensity,
+            ShadowBoost
+        };
+
+        bool IsConvertedLightEligible(const RE::TESObjectLIGH* ligh, std::uint32_t flags) noexcept
+        {
+            if (!ligh || !IsAlreadyISL(flags) || !IsPluginConvertedLight(ligh->formID))
+                return false;
+            if (g_config.excludeSpotLights && IsSpotLight(flags))
+                return false;
+            if (g_config.excludeLightPlacer && IsLightPlacerExcluded(ligh->formID))
+                return false;
+            if (IsMagicFXExcluded(ligh->formID))
+                return false;
+            return true;
+        }
+
+        bool ShouldScaleLight(const RE::TESObjectLIGH* ligh, LiveScaleTarget target) noexcept
+        {
+            if (!ligh)
+                return false;
+
+            const auto flags = ligh->data.flags.underlying();
+            if (!IsConvertedLightEligible(ligh, flags))
+                return false;
+
+            const bool isShadow = IsShadowCaster(flags);
+            return target == LiveScaleTarget::ShadowBoost ? isShadow : !isShadow;
+        }
+
+        std::uint32_t ScaleConvertedRefDeltas(float ratio, LiveScaleTarget target)
         {
             std::vector<RE::FormID> cellIDs;
             std::unordered_set<RE::FormID> refIDs;
@@ -157,12 +189,10 @@ namespace isl {
                     if (!refr || !refIDs.contains(refr->formID))
                         continue;
 
-                    if (shadowOnly) {
-                        auto* base = refr->GetBaseObject();
-                        auto* ligh = base ? base->As<RE::TESObjectLIGH>() : nullptr;
-                        if (!ligh || !IsShadowCaster(ligh->data.flags.underlying()))
-                            continue;
-                    }
+                    auto* base = refr->GetBaseObject();
+                    auto* ligh = base ? base->As<RE::TESObjectLIGH>() : nullptr;
+                    if (!ShouldScaleLight(ligh, target))
+                        continue;
 
                     auto* xlig = refr->extraList.GetByType<RE::ExtraLightData>();
                     if (!xlig || xlig->data.fov >= MaxSize)
@@ -537,8 +567,10 @@ namespace isl {
             if (!g_config.radiusMatchedFade)
                 p.intensity = F;
 
-            p.intensity *= intensityScale;
-            if (IsShadowCaster(flagsRaw))
+            const bool isShadow = IsShadowCaster(flagsRaw);
+            if (!isShadow)
+                p.intensity *= intensityScale;
+            if (isShadow)
                 p.intensity *= boost;
 
             ligh->fade                = p.intensity;
@@ -593,14 +625,13 @@ namespace isl {
 
         std::uint32_t touched = 0;
         for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
-            if (!ligh) continue;
-            if (!IsAlreadyISL(ligh->data.flags.underlying())) continue;
-            if (!IsPluginConvertedLight(ligh->formID)) continue;
+            if (!ShouldScaleLight(ligh, LiveScaleTarget::GlobalIntensity))
+                continue;
 
             ligh->fade *= ratio;
             ++touched;
         }
-        const auto touchedRefs = ScaleConvertedRefDeltas(ratio, false);
+        const auto touchedRefs = ScaleConvertedRefDeltas(ratio, LiveScaleTarget::GlobalIntensity);
 
         g_appliedIntensityScale.store(newScale, std::memory_order_release);
         g_config.intensityScale = newScale;
@@ -638,22 +669,13 @@ namespace isl {
 
         std::uint32_t touched = 0;
         for (auto* ligh : dh->GetFormArray<RE::TESObjectLIGH>()) {
-            if (!ligh) continue;
-            const auto flagsRaw = ligh->data.flags.underlying();
-            if (!IsAlreadyISL(flagsRaw)) continue;
-            if (!IsPluginConvertedLight(ligh->formID)) continue;
-            if (!IsShadowCaster(flagsRaw)) continue;
-            if (g_config.excludeSpotLights && IsSpotLight(flagsRaw)) continue;
-            if (g_config.excludeLightPlacer &&
-                IsLightPlacerExcluded(ligh->formID))
-                continue;
-            if (IsMagicFXExcluded(ligh->formID))
+            if (!ShouldScaleLight(ligh, LiveScaleTarget::ShadowBoost))
                 continue;
 
             ligh->fade *= ratio;
             ++touched;
         }
-        const auto touchedRefs = ScaleConvertedRefDeltas(ratio, true);
+        const auto touchedRefs = ScaleConvertedRefDeltas(ratio, LiveScaleTarget::ShadowBoost);
 
         g_appliedShadowBoost.store(effectiveNew, std::memory_order_release);
         g_config.shadowBoost = newBoost;
@@ -730,13 +752,13 @@ namespace isl {
             const float baseI   = ligh->fade;         // post-boost ISL intensity
             const float baseS   = ligh->data.fov;     // ISL size
             const float fadeOff = xlig ? xlig->data.fade : 0.0f;
-            const bool  isShadow =
-                g_config.boostShadowCasters && IsShadowCaster(baseFlags);
-            const float boost    = isShadow
+            const bool  isShadowCaster = IsShadowCaster(baseFlags);
+            const bool  usesShadowBoost = g_config.boostShadowCasters && isShadowCaster;
+            const float boost    = usesShadowBoost
                                        ? g_appliedShadowBoost.load(std::memory_order_acquire)
                                        : 1.0f;
             const float intensityScale =
-                g_appliedIntensityScale.load(std::memory_order_acquire);
+                isShadowCaster ? 1.0f : g_appliedIntensityScale.load(std::memory_order_acquire);
             const bool radiusMatched =
                 g_appliedRadiusMatchedFade.load(std::memory_order_acquire);
             if (!std::isfinite(baseI) || !std::isfinite(baseS) || baseS <= 0.0f) {
