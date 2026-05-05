@@ -15,7 +15,10 @@ namespace isl {
         const float s = std::sqrt(s2);
         if (s >= MaxSize)
             return false;
-        out.intensity = (F * s2) / 8.0f;
+        const float intensity = (F * s2) / 8.0f;
+        if (!std::isfinite(intensity) || !std::isfinite(s))
+            return false;
+        out.intensity = intensity;
         out.size      = s;
         out.cutoff    = c;
         return true;

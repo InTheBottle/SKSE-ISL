@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <mutex>
 #include <regex>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_set>

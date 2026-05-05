@@ -19,17 +19,17 @@ namespace isl {
         std::unordered_set<RE::FormID>      g_convertedRefIDs;
         std::unordered_set<RE::FormID>      g_processedCells;
         std::unordered_set<RE::FormID>      g_convertedLightIDs;
-        std::mutex                          g_convertedLightMutex;
+        std::shared_mutex                   g_convertedLightMutex;
 
         // LIGH base IDs from LP JSONs. Shared with vanilla placements,
         // so any mutation on these bases leaks into LP-spawned NiLights.
         std::unordered_set<RE::FormID>      g_lpFormIDs;
-        std::mutex                          g_lpMutex;
+        std::shared_mutex                   g_lpMutex;
 
         // Dynamic FX LIGH bases referenced by magic effects, projectiles,
         // explosions, hazards, window/glow/fx editor IDs, or emittance sources.
         std::unordered_set<RE::FormID>      g_magicFXFormIDs;
-        std::mutex                          g_magicFXMutex;
+        std::shared_mutex                   g_magicFXMutex;
 
         // Global intensity factor currently baked into converted LIGH fades.
         std::atomic<float>                  g_appliedIntensityScale{ 1.0f };
@@ -99,7 +99,7 @@ namespace isl {
         {
             if (id == 0)
                 return false;
-            std::scoped_lock lk(g_lpMutex);
+            std::shared_lock lk(g_lpMutex);
             return g_lpFormIDs.contains(id);
         }
 
@@ -107,7 +107,7 @@ namespace isl {
         {
             if (id == 0)
                 return false;
-            std::scoped_lock lk(g_magicFXMutex);
+            std::shared_lock lk(g_magicFXMutex);
             return g_magicFXFormIDs.contains(id);
         }
 
@@ -115,7 +115,7 @@ namespace isl {
         {
             if (id == 0)
                 return false;
-            std::scoped_lock lk(g_convertedLightMutex);
+            std::shared_lock lk(g_convertedLightMutex);
             return g_convertedLightIDs.contains(id);
         }
 
@@ -123,7 +123,7 @@ namespace isl {
         {
             if (id == 0)
                 return;
-            std::scoped_lock lk(g_convertedLightMutex);
+            std::unique_lock lk(g_convertedLightMutex);
             g_convertedLightIDs.insert(id);
         }
 
@@ -421,7 +421,7 @@ namespace isl {
         }
 
         {
-            std::scoped_lock lk(g_lpMutex);
+            std::unique_lock lk(g_lpMutex);
             g_lpFormIDs = std::move(collected);
             logger::info(
                 "[ISL] LightPlacer scan: files={} lightTokens={} edids={} resolvedLIGH={} excludedBases={}",
@@ -435,7 +435,7 @@ namespace isl {
 
         auto* dh = RE::TESDataHandler::GetSingleton();
         if (!dh) {
-            std::scoped_lock lk(g_magicFXMutex);
+            std::unique_lock lk(g_magicFXMutex);
             g_magicFXFormIDs.clear();
             return;
         }
@@ -478,7 +478,7 @@ namespace isl {
         AddEditorIDExcludedLightIDs(collected, nameLights);
 
         {
-            std::scoped_lock lk(g_magicFXMutex);
+            std::unique_lock lk(g_magicFXMutex);
             g_magicFXFormIDs = std::move(collected);
             logger::info(
                 "[ISL] Magic/FX light scan: mgef={} projectile={} explosion={} hazard={} nameMatch={} excludedBases={}",
@@ -518,6 +518,9 @@ namespace isl {
         std::uint32_t converted = 0, skippedISL = 0, skippedMath = 0,
                       skippedLP = 0, skippedMagicFX = 0, skippedSpot = 0;
 
+        std::vector<RE::FormID> newlyConverted;
+        newlyConverted.reserve(lights.size() / 4);
+
         for (auto* ligh : lights) {
             if (!ligh)
                 continue;
@@ -526,18 +529,6 @@ namespace isl {
 
             if (IsSpotLight(flagsRaw)) {
                 ++skippedSpot;
-                continue;
-            }
-
-            if (IsAlreadyISL(flagsRaw)) {
-                ++skippedISL;
-                if (!IsPluginConvertedLight(ligh->formID)) {
-                    const bool isShadow = IsShadowCaster(flagsRaw);
-                    const float scale = isShadow ? boost : intensityScale;
-                    if (scale != 1.0f && std::isfinite(ligh->fade) && ligh->fade > 0.0f)
-                        ligh->fade *= scale;
-                    MarkPluginConvertedLight(ligh->formID);
-                }
                 continue;
             }
 
@@ -550,6 +541,11 @@ namespace isl {
 
             if (IsMagicFXExcluded(ligh->formID)) {
                 ++skippedMagicFX;
+                continue;
+            }
+
+            if (IsAlreadyISL(flagsRaw)) {
+                ++skippedISL;
                 continue;
             }
 
@@ -577,9 +573,14 @@ namespace isl {
             ligh->data.fallofExponent = p.cutoff;
             ligh->data.flags.set(
                 static_cast<RE::TES_LIGHT_FLAGS>(FlagInverseSquare));
-            MarkPluginConvertedLight(ligh->formID);
+            newlyConverted.push_back(ligh->formID);
 
             ++converted;
+        }
+
+        if (!newlyConverted.empty()) {
+            std::unique_lock lk(g_convertedLightMutex);
+            g_convertedLightIDs.insert(newlyConverted.begin(), newlyConverted.end());
         }
 
         g_stats.lighConverted         += converted;
@@ -805,10 +806,9 @@ namespace isl {
             }
 
             auto* ld = GetOrCreateExtraLightData(refr);
-            // ISL semantics: ld.fov = absolute size override (0 = use base); ld.fade = intensity delta.
-            // endDistanceCap carries our authoring marker so we can identify our own XLIGs
-            // across save/load (changeforms preserve the field).
-            ld->data.fov            = hasRadiusOverride ? desiredS : 0.0f;
+
+            if (hasRadiusOverride)
+                ld->data.fov = desiredS;
             ld->data.fade           = delta;
             ld->data.endDistanceCap = AuthoredEndCap;
 
@@ -852,18 +852,21 @@ namespace isl {
                 refs.emplace_back(handle);
         }
 
-        for (const auto& handle : refs) {
-            auto* refr = handle.get();
-            if (!refr)
-                continue;
-
-            {
-                std::scoped_lock rl(g_refrMutex);
-                if (!g_processedRefs.insert(refr->formID).second)
+        std::vector<RE::TESObjectREFR*> toProcess;
+        toProcess.reserve(refs.size());
+        {
+            std::scoped_lock rl(g_refrMutex);
+            for (const auto& handle : refs) {
+                auto* refr = handle.get();
+                if (!refr)
                     continue;
+                if (g_processedRefs.insert(refr->formID).second)
+                    toProcess.push_back(refr);
             }
-            ConvertOneRef(refr);
         }
+
+        for (auto* refr : toProcess)
+            ConvertOneRef(refr);
     }
 
     // Event sink for lazy REFR conversion
