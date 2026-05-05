@@ -43,6 +43,8 @@ namespace isl {
         // True once the LIGH pass has run; drives a lazy failsafe.
         std::atomic<bool> g_lighPassDone{ false };
 
+        std::atomic<RE::FormID> g_lastProcessedCell{ 0 };
+
         RE::ExtraLightData* GetOrCreateExtraLightData(RE::TESObjectREFR* refr)
         {
             auto* existing = refr->extraList.GetByType<RE::ExtraLightData>();
@@ -117,14 +119,6 @@ namespace isl {
                 return false;
             std::shared_lock lk(g_convertedLightMutex);
             return g_convertedLightIDs.contains(id);
-        }
-
-        void MarkPluginConvertedLight(RE::FormID id)
-        {
-            if (id == 0)
-                return;
-            std::unique_lock lk(g_convertedLightMutex);
-            g_convertedLightIDs.insert(id);
         }
 
         float ClampIntensityScale(float scale) noexcept
@@ -505,14 +499,34 @@ namespace isl {
             g_config.shadowBoost = ClampShadowBoost(g_config.shadowBoost);
         }
 
+        bool foreignISLDominant = false;
+        if (firstPass && !lights.empty()) {
+            std::size_t alreadyISL = 0;
+            for (auto* l : lights) {
+                if (l && IsAlreadyISL(l->data.flags.underlying()))
+                    ++alreadyISL;
+            }
+
+            if (alreadyISL * 10 >= lights.size()) {
+                foreignISLDominant = true;
+                logger::info(
+                    "[ISL] Pre-existing ISL coverage detected ({}/{} lights). "
+                    "Forcing session boost/scale to 1.0 to avoid stacking on third-party tuning. "
+                    "Use the slider to override.",
+                    alreadyISL, lights.size());
+            }
+        }
+
         const bool radiusMatched = firstPass
                                        ? g_config.radiusMatchedFade
                                        : g_appliedRadiusMatchedFade.load(std::memory_order_acquire);
         const float intensityScale = firstPass
-                                         ? g_config.intensityScale
+                                         ? (foreignISLDominant ? 1.0f : g_config.intensityScale)
                                          : g_appliedIntensityScale.load(std::memory_order_acquire);
         const float boost = firstPass
-                                ? (g_config.boostShadowCasters ? g_config.shadowBoost : 1.0f)
+                                ? (foreignISLDominant
+                                       ? 1.0f
+                                       : (g_config.boostShadowCasters ? g_config.shadowBoost : 1.0f))
                                 : g_appliedShadowBoost.load(std::memory_order_acquire);
 
         std::uint32_t converted = 0, skippedISL = 0, skippedMath = 0,
@@ -701,30 +715,15 @@ namespace isl {
             if (!ligh)
                 return;
 
-            // LP-managed base: LIGH pass already skipped it, don't author a REFR override.
-            if (g_config.excludeLightPlacer &&
-                IsLightPlacerExcluded(ligh->formID))
-            {
-                ++g_stats.refrSkippedLightPlacer;
-                return;
-            }
-
-            if (IsMagicFXExcluded(ligh->formID)) {
-                ++g_stats.refrSkippedMagicFX;
-                return;
-            }
-
             const auto baseFlags = ligh->data.flags.underlying();
 
-            // See ConvertAllLights: spot lights are unconditionally excluded.
             if (IsSpotLight(baseFlags)) {
                 ++g_stats.refrSkippedSpot;
                 return;
             }
-
-            // Base wasn't converted (math out of domain or disabled) - skip placement too.
             if (!IsAlreadyISL(baseFlags))
                 return;
+
             if (!IsPluginConvertedLight(ligh->formID))
                 return;
 
@@ -826,6 +825,9 @@ namespace isl {
         if (!g_config.enabled || !g_config.convertRefrs || !cell)
             return;
 
+        if (g_lastProcessedCell.load(std::memory_order_relaxed) == cell->formID)
+            return;
+
         // Failsafe: if kDataLoaded was missed, run the LIGH pass once on first cell attach.
         if (!g_lighPassDone.load(std::memory_order_acquire)) {
             static std::once_flag s_lighOnce;
@@ -838,9 +840,12 @@ namespace isl {
 
         {
             std::scoped_lock rl(g_refrMutex);
-            if (!g_processedCells.insert(cell->formID).second)
-                return;  // already walked this cell in the current session
+            if (!g_processedCells.insert(cell->formID).second) {
+                g_lastProcessedCell.store(cell->formID, std::memory_order_relaxed);
+                return;
+            }
         }
+        g_lastProcessedCell.store(cell->formID, std::memory_order_relaxed);
         ++g_stats.refrCellsProcessed;
 
         std::vector<RE::NiPointer<RE::TESObjectREFR>> refs;
@@ -918,6 +923,7 @@ namespace isl {
                 g_processedRefs.clear();
                 g_convertedRefIDs.clear();
             }
+            g_lastProcessedCell.store(0, std::memory_order_relaxed);
             if (!g_lighPassDone.load(std::memory_order_acquire)) {
                 logger::warn("[ISL] LIGH pass not yet run at save load; running now.");
                 LoadAllExclusions();
