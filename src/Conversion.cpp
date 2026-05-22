@@ -267,6 +267,7 @@ namespace isl {
         {
             return ContainsNoCase(id, "glowfill") ||
                    ContainsNoCase(id, "window") ||
+                   ContainsNoCase(id, "sun") ||
                    (StartsWithNoCase(id, "fx") && ContainsNoCase(id, "light")) ||
                    // SCS-ISL keeps a hardcoded per-light override for these
                    // decorative bulbs that overrides our writes per-frame, so
