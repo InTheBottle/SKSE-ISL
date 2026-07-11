@@ -38,16 +38,19 @@ namespace isl {
         }
     };
 
-    // Global feature toggle (persisted as ini-style config).
+    // User config, persisted ini-style.
     struct Config {
         bool  enabled             = true;
         bool  convertRefrs        = true;
         bool  radiusMatchedFade   = true;
+        // Legacy toggle; Load() migrates a saved "off" to shadowBoost = 1.0.
         bool  boostShadowCasters  = true;
         bool  excludeLightPlacer  = true;
         bool  excludeSpotLights   = true;
         float intensityScale      = 1.0f;
         float shadowBoost         = 8.0f;
+        // Regular-light falloff cutoff; shadow casters track at the default 0.022/0.05 ratio.
+        float cutoff              = 0.05f;
 
         void Load();
         void Save() const;
@@ -62,8 +65,10 @@ namespace isl {
     // Live-scales every converted LIGH fade by newScale / oldScale.
     void SetIntensityScale(float newScale);
 
-    // Scans Data/LightPlacer/**/*.json for "light" EditorIDs; resolved LIGH
-    // bases are skipped everywhere (LIGH pass, REFR pass, live boost).
+    // Re-solves every converted LIGH and REFR delta for a new falloff cutoff.
+    void SetCutoff(float newCutoff);
+
+    // Scans Data/LightPlacer/**/*.json for light EditorIDs; resolved LIGH bases are skipped everywhere.
     void LoadLightPlacerExclusions();
 
     // Collects magic/projectile/explosion/hazard lights and conservative editor-ID/emittance skips.
