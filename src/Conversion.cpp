@@ -405,7 +405,6 @@ namespace isl {
             else if (key == "radiusMatchedFade")  radiusMatchedFade   = (val == "1" || val == "true");
             else if (key == "boostShadow")        boostShadowCasters  = (val == "1" || val == "true");
             else if (key == "excludeLightPlacer") excludeLightPlacer  = (val == "1" || val == "true");
-            else if (key == "excludeSpotLights")  excludeSpotLights   = (val == "1" || val == "true");
             else if (key == "intensityScale") {
                 try { intensityScale = ClampIntensityScale(std::stof(val)); } catch (...) {}
             }
@@ -444,7 +443,6 @@ namespace isl {
         out << "radiusMatchedFade="  << (radiusMatchedFade  ? "1" : "0") << '\n';
         out << "boostShadow="        << (boostShadowCasters ? "1" : "0") << '\n';
         out << "excludeLightPlacer=" << (excludeLightPlacer ? "1" : "0") << '\n';
-        out << "excludeSpotLights="  << (excludeSpotLights  ? "1" : "0") << '\n';
         out << "intensityScale="     << intensityScale                   << '\n';
         out << "shadowBoost="        << shadowBoost                      << '\n';
         out << "cutoff="             << cutoff                           << '\n';
@@ -876,38 +874,59 @@ namespace isl {
                 return;
 
             const auto baseFlags = ligh->data.flags.underlying();
-
-            if (IsSpotLight(baseFlags)) {
-                ++g_stats.refrSkippedSpot;
-                return;
-            }
-            if (!IsAlreadyISL(baseFlags))
-                return;
+            auto* xlig = refr->extraList.GetByType<RE::ExtraLightData>();
 
             // Base must be one of ours; its stored original fade is the exact vanilla F.
             float origF = 0.0f;
+            bool  isOurs = false;
             {
                 std::shared_lock lk(g_convertedLightMutex);
                 const auto it = g_convertedLights.find(ligh->formID);
-                if (it == g_convertedLights.end())
+                if (it != g_convertedLights.end()) {
+                    isOurs = true;
+                    origF = it->second;
+                }
+            }
+
+            // Reverts a stale authored override left in the save by an older build/exclusion list.
+            const auto revertStale = [&] {
+                if (!IsISLAuthored(xlig))
                     return;
-                origF = it->second;
+                xlig->data.fade           = 0.0f;
+                xlig->data.fov            = 90.0f;
+                xlig->data.endDistanceCap = 0.0f;
+                {
+                    std::scoped_lock rl(g_refrMutex);
+                    g_convertedRefs.erase(refr->formID);
+                }
+                ++g_stats.refrReverted;
+            };
+
+            if (IsSpotLight(baseFlags)) {
+                revertStale();
+                ++g_stats.refrSkippedSpot;
+                return;
+            }
+            if (!IsAlreadyISL(baseFlags) || !isOurs) {
+                revertStale();
+                return;
             }
 
             // Save-safety: a persistent ref's ChangeForm would keep our delta forever post-uninstall.
             if (IsPersistent(refr)) {
+                revertStale();
                 ++g_stats.refrSkippedPersistent;
                 return;
             }
 
             if (refr->extraList.HasType<RE::ExtraEmittanceSource>()) {
+                revertStale();
                 ++g_stats.refrSkippedMagicFX;
                 return;
             }
 
             const float scale = GetRefScale(refr);
             auto* xrds = GetExtraRadius(refr);
-            auto* xlig = refr->extraList.GetByType<RE::ExtraLightData>();
 
             if (IsISLAuthored(xlig))
                 return;

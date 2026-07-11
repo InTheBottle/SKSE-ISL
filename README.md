@@ -114,6 +114,13 @@ fields under ISL semantics:
 - `ExtraLightData::fov` → absolute ISL size override (0 = inherit base)
 - `ExtraLightData::fade` → intensity **delta** from the converted base
 
+Refs that carry this plugin's authored `ExtraLightData` but are excluded
+under current rules (spot lights, non-converted/foreign bases, persistent,
+emittance-driven) are automatically reverted to unset defaults when their
+cell attaches. This heals saves written by older builds whose exclusion
+rules were narrower — e.g. spotlight refs whose beam angle was clobbered by
+an ISL size, which made spot lights look like they were no longer excluded.
+
 ## Particle lights (Community Shaders)
 
 Community Shaders' Light Limit Fix can turn configured particle effects

@@ -19,6 +19,7 @@ namespace isl {
         std::atomic<std::uint32_t> refrSkippedMagicFX{ 0 };
         std::atomic<std::uint32_t> refrSkippedSpot{ 0 };
         std::atomic<std::uint32_t> refrSkippedPersistent{ 0 };
+        std::atomic<std::uint32_t> refrReverted{ 0 };
 
         void Reset() noexcept
         {
@@ -35,6 +36,7 @@ namespace isl {
             refrSkippedMagicFX = 0;
             refrSkippedSpot = 0;
             refrSkippedPersistent = 0;
+            refrReverted = 0;
         }
     };
 
@@ -46,7 +48,6 @@ namespace isl {
         // Legacy toggle; Load() migrates a saved "off" to shadowBoost = 1.0.
         bool  boostShadowCasters  = true;
         bool  excludeLightPlacer  = true;
-        bool  excludeSpotLights   = true;
         float intensityScale      = 1.0f;
         float shadowBoost         = 8.0f;
         // Regular-light falloff cutoff; shadow casters track at the default 0.022/0.05 ratio.
