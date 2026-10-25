@@ -109,7 +109,10 @@ shows the full new curve after it reloads (save/load or cell transition).
 **REFR pass** (runs lazily on `TESCellAttachDetachEvent`):
 For every placed light in a newly-attached cell, reads `XSCL`, `ExtraRadius`
 (`XRDS`), and `ExtraLightData` (`XLIG`) and rewrites the `ExtraLightData`
-fields under ISL semantics:
+fields under ISL semantics. `XRDS` and the `XLIG` fade are offsets the engine
+adds to the base radius and fade. The conversion is marked in the `XLIG` End
+Distance Cap, so a reference with a cap of its own keeps it and is not
+converted:
 
 - `ExtraLightData::fov` → absolute ISL size override (0 = inherit base)
 - `ExtraLightData::fade` → intensity **delta** from the converted base

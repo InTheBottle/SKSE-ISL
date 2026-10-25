@@ -16,8 +16,8 @@ namespace isl {
 
         // Solve inputs for a converted REFR, so a cutoff change can re-solve it exactly.
         struct RefRecord {
-            float fade;            // effective vanilla F (base F x XLIG multiplier)
-            float radius;          // effective radius (override x ref scale)
+            float fade;            // effective vanilla F (base F + XLIG fade offset)
+            float radius;          // effective radius ((base + XRDS) x ref scale)
             bool  radiusOverride;  // whether XLIG fov carries an absolute size
         };
 
@@ -931,11 +931,13 @@ namespace isl {
             if (IsISLAuthored(xlig))
                 return;
 
-            if (xlig && xlig->data.fov < MaxSize)
+            // A plugin XLIG's fov is an FOV offset, not an ISL size. Its End Distance Cap holds our marker, so
+            // a reference with a cap of its own keeps it and is not converted.
+            if (xlig && xlig->data.endDistanceCap != 0.0f)
                 return;
 
             const bool hasRadiusOverride =
-                (xrds && xrds->radius > 0.0f) || scale != 1.0f;
+                (xrds && xrds->radius != 0.0f) || scale != 1.0f;
             const bool hasFadeOverride = xlig && xlig->data.fade != 0.0f;
 
             if (!hasRadiusOverride && !hasFadeOverride)
@@ -956,10 +958,10 @@ namespace isl {
             }
 
             const float rBase = static_cast<float>(ligh->data.radius);
-            const float rOver = (xrds && xrds->radius > 0.0f) ? xrds->radius : rBase;
+            // XRDS and XLIG.fade are offsets: the engine adds them to the base radius and fade.
+            const float rOver = xrds ? rBase + xrds->radius : rBase;
             const float rEff  = rOver * scale;
-            // Vanilla XLIG.fade is a multiplier on FNAM; fade <= 0 means "no override".
-            const float Feff  = (fadeOff > 0.0f) ? origF * fadeOff : origF;
+            const float Feff  = origF + fadeOff;
 
             ISLParams p{};
             if (!ComputeISL(Feff, rEff, c, p)) {
