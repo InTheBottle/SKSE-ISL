@@ -18,7 +18,6 @@ namespace isl {
         struct RefRecord {
             float fade;            // effective vanilla F (base F + XLIG fade offset)
             float radius;          // effective radius ((base + XRDS) x ref scale)
-            bool  radiusOverride;  // whether XLIG fov carries an absolute size
         };
 
         std::mutex                                    g_refrMutex;
@@ -61,8 +60,8 @@ namespace isl {
                 return existing;
 
             auto* ld = new RE::ExtraLightData();
-            // "Unset" defaults: fov >= 50 => engine uses sqrt(2); fade 0 => base fade.
-            ld->data.fov             = 90.0f;
+            // "Unset" defaults: fov and fade are offsets, 0 => the base's.
+            ld->data.fov             = 0.0f;
             ld->data.fade            = 0.0f;
             ld->data.endDistanceCap  = 0.0f;
             ld->data.shadowDepthBias = 1.0f;
@@ -73,6 +72,15 @@ namespace isl {
         bool IsISLAuthored(const RE::ExtraLightData* xlig) noexcept
         {
             return xlig && xlig->data.endDistanceCap == AuthoredEndCap;
+        }
+
+        float RefIntensity(const RE::TESObjectLIGH* ligh, const RefRecord& rec, bool radiusMatched) noexcept
+        {
+            // Community Shaders reads the ISL size and cutoff from the base record only: the ref keeps them, and its
+            // fade is solved for its reach (its vanilla fade without radius matching).
+            return radiusMatched ?
+                IntensityForReach(rec.radius, ligh->data.fallofExponent, BaseSize(ligh->data.fov)) :
+                rec.fade;
         }
 
         RE::ExtraRadius* GetExtraRadius(RE::TESObjectREFR* refr)
@@ -226,7 +234,7 @@ namespace isl {
 
         // Re-solves converted REFR deltas for a new cutoff; refs whose base failed stay untouched.
         std::uint32_t RecomputeConvertedRefDeltas(
-            float newCutoff, bool radiusMatched, float scale, float boost,
+            bool radiusMatched, float scale, float boost,
             const std::unordered_set<RE::FormID>& failedBases)
         {
             std::vector<RE::FormID> cellIDs;
@@ -273,23 +281,13 @@ namespace isl {
                     if (!IsISLAuthored(xlig))
                         continue;
 
-                    const auto& rec = it->second;
-                    const float c = EffectiveCutoff(flags, newCutoff);
-                    ISLParams p{};
-                    if (!ComputeISL(rec.fade, rec.radius, c, p))
-                        continue;
-                    if (!radiusMatched)
-                        p.intensity = rec.fade;
-
                     const float desiredI =
-                        p.intensity * (IsShadowCaster(flags) ? boost : scale);
+                        RefIntensity(ligh, it->second, radiusMatched) * (IsShadowCaster(flags) ? boost : scale);
                     const float delta = desiredI - ligh->fade;
                     if (!std::isfinite(delta) || std::fabs(delta) > 1.0e6f)
                         continue;
 
                     xlig->data.fade = delta;
-                    if (rec.radiusOverride)
-                        xlig->data.fov = p.size;
                     ++touched;
                 }
             }
@@ -850,7 +848,7 @@ namespace isl {
         }
 
         const auto touchedRefs =
-            RecomputeConvertedRefDeltas(newCutoff, radiusMatched, scale, boost, failed);
+            RecomputeConvertedRefDeltas(radiusMatched, scale, boost, failed);
 
         g_appliedCutoff.store(newCutoff, std::memory_order_release);
         g_config.cutoff = newCutoff;
@@ -893,7 +891,7 @@ namespace isl {
                 if (!IsISLAuthored(xlig))
                     return;
                 xlig->data.fade           = 0.0f;
-                xlig->data.fov            = 90.0f;
+                xlig->data.fov            = 0.0f;
                 xlig->data.endDistanceCap = 0.0f;
                 {
                     std::scoped_lock rl(g_refrMutex);
@@ -943,8 +941,6 @@ namespace isl {
             if (!hasRadiusOverride && !hasFadeOverride)
                 return;  // pure base inheritance
 
-            const float c = EffectiveCutoff(
-                baseFlags, g_appliedCutoff.load(std::memory_order_acquire));
             const float baseI   = ligh->fade;         // post-factor ISL intensity
             const float fadeOff = xlig ? xlig->data.fade : 0.0f;
             const float factor  = IsShadowCaster(baseFlags)
@@ -963,15 +959,12 @@ namespace isl {
             const float rEff  = rOver * scale;
             const float Feff  = origF + fadeOff;
 
-            ISLParams p{};
-            if (!ComputeISL(Feff, rEff, c, p)) {
+            if (!(rEff > 0.0f) || !(Feff > 0.0f)) {
                 ++g_stats.refrSkippedMath;
                 return;
             }
-            if (!radiusMatched)
-                p.intensity = Feff;
-
-            const float desiredI = p.intensity * factor;
+            const RefRecord rec{ Feff, rEff };
+            const float desiredI = RefIntensity(ligh, rec, radiusMatched) * factor;
 
             // Sanity: reject non-finite or absurd values rather than bake them into the save.
             const float delta = desiredI - baseI;
@@ -982,15 +975,13 @@ namespace isl {
 
             auto* ld = GetOrCreateExtraLightData(refr);
 
-            if (hasRadiusOverride)
-                ld->data.fov = p.size;
             ld->data.fade           = delta;
             ld->data.endDistanceCap = AuthoredEndCap;
 
             {
                 std::scoped_lock rl(g_refrMutex);
                 g_convertedRefs.insert_or_assign(
-                    refr->formID, RefRecord{ Feff, rEff, hasRadiusOverride });
+                    refr->formID, rec);
             }
 
             ++g_stats.refrConverted;
