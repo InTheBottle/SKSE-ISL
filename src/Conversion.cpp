@@ -14,7 +14,7 @@ namespace isl {
         Config g_config;
         Stats  g_stats;
 
-        // Solve inputs for a converted REFR, so a cutoff change can re-solve it exactly.
+        // Solve inputs for a converted REFR, so a cutoff change or a later attach can re-solve it exactly.
         struct RefRecord {
             float fade;            // effective vanilla F (base F + XLIG fade offset)
             float radius;          // effective radius ((base + XRDS) x ref scale)
@@ -915,9 +915,35 @@ namespace isl {
 
             const float scale = GetRefScale(refr);
             auto* xrds = GetExtraRadius(refr);
+            const float baseI   = ligh->fade;         // post-factor ISL intensity
+            const float factor  = IsShadowCaster(baseFlags)
+                                      ? g_appliedShadowBoost.load(std::memory_order_acquire)
+                                      : g_appliedIntensityScale.load(std::memory_order_acquire);
+            const bool radiusMatched =
+                g_appliedRadiusMatchedFade.load(std::memory_order_acquire);
 
-            if (IsISLAuthored(xlig))
+            if (IsISLAuthored(xlig)) {
+                // Converted earlier: solve it again from its record, since a slider may have moved after a save
+                // load before its cell attached again. The pass never writes XRDS or the scale, so the reach comes
+                // from them as they are now; the fade offset only lives on in the record.
+                std::optional<RefRecord> rec;
+                {
+                    std::scoped_lock rl(g_refrMutex);
+                    if (const auto it = g_convertedRefs.find(refr->formID); it != g_convertedRefs.end())
+                        rec = it->second;
+                }
+                if (rec) {
+                    const float rBase = static_cast<float>(ligh->data.radius);
+                    rec->radius = (xrds ? rBase + xrds->radius : rBase) * scale;
+                    const float delta = RefIntensity(ligh, *rec, radiusMatched) * factor - baseI;
+                    if (std::isfinite(delta) && std::fabs(delta) <= 1.0e6f) {
+                        xlig->data.fade = delta;
+                        std::scoped_lock rl(g_refrMutex);
+                        g_convertedRefs.insert_or_assign(refr->formID, *rec);
+                    }
+                }
                 return;
+            }
 
             // A plugin XLIG's fov is an FOV offset, not an ISL size. Its End Distance Cap holds our marker, so
             // a reference with a cap of its own keeps it and is not converted.
@@ -931,13 +957,7 @@ namespace isl {
             if (!hasRadiusOverride && !hasFadeOverride)
                 return;  // pure base inheritance
 
-            const float baseI   = ligh->fade;         // post-factor ISL intensity
             const float fadeOff = xlig ? xlig->data.fade : 0.0f;
-            const float factor  = IsShadowCaster(baseFlags)
-                                      ? g_appliedShadowBoost.load(std::memory_order_acquire)
-                                      : g_appliedIntensityScale.load(std::memory_order_acquire);
-            const bool radiusMatched =
-                g_appliedRadiusMatchedFade.load(std::memory_order_acquire);
             if (!std::isfinite(baseI)) {
                 ++g_stats.refrSkippedMath;
                 return;
@@ -1074,7 +1094,6 @@ namespace isl {
                 std::scoped_lock rl(g_refrMutex);
                 g_processedCells.clear();
                 g_processedRefs.clear();
-                g_convertedRefs.clear();
             }
             g_lastProcessedCell.store(0, std::memory_order_relaxed);
             if (!g_lighPassDone.load(std::memory_order_acquire)) {
