@@ -2,6 +2,8 @@
 
 #include "PCH.h"
 
+#include <numbers>
+
 namespace isl {
 
     inline constexpr float K_S            = 1960.0f;
@@ -15,8 +17,10 @@ namespace isl {
     // Shadow casters keep the tuned default ratio as the cutoff moves.
     inline constexpr float ShadowCutoffRatio = CutoffShadow / CutoffRegular;
 
-    // Engine snaps DATA\FOV >= 50 to sqrt(2) (treated as "no ISL size set").
-    inline constexpr float MaxSize        = 49.99f;
+    // DATA\FOV >= 50 means "no ISL size set" (size sqrt(2)); sizes are clamped to at least 0.01.
+    inline constexpr float UnsetSizeFov   = 50.0f;
+    inline constexpr float MaxSize        = UnsetSizeFov - 0.01f;
+    inline constexpr float MinSize        = 0.01f;
 
     // Numerical guard for F barely above c.
     inline constexpr float MinFmc         = 0.001f;
@@ -54,6 +58,17 @@ namespace isl {
     {
         const float c = IsShadowCaster(flags) ? regularCutoff * ShadowCutoffRatio : regularCutoff;
         return c < MinCutoff ? MinCutoff : c;
+    }
+
+    [[nodiscard]] constexpr float BaseSize(float fov) noexcept
+    {
+        const float s = fov >= UnsetSizeFov ? std::numbers::sqrt2_v<float> : fov;
+        return s < MinSize ? MinSize : s;
+    }
+
+    [[nodiscard]] constexpr float IntensityForReach(float r, float c, float s) noexcept
+    {
+        return c * (r * r / K_S + s * s) / 8.0f;
     }
 
     [[nodiscard]] bool ComputeISL(float F, float r, float c, ISLParams& out) noexcept;

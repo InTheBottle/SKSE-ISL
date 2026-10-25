@@ -78,7 +78,7 @@ directories:
 **LIGH pass** (runs on `kDataLoaded`, and on demand from the UI):
 Walks every `TESObjectLIGH` in the data handler. For each one not already
 flagged Inverse Square, and not excluded as a LightPlacer, magic, projectile,
-explosion, hazard, window/glow/fx editor-ID match, or emittance light, it solves
+explosion, hazard, or window/sun/glow/fx editor-ID match, it solves
 
 $$
 s = \sqrt{\frac{c \cdot r^2}{1960\,(F - c)}},
@@ -108,15 +108,22 @@ shows the full new curve after it reloads (save/load or cell transition).
 
 **REFR pass** (runs lazily on `TESCellAttachDetachEvent`):
 For every placed light in a newly-attached cell, reads `XSCL`, `ExtraRadius`
-(`XRDS`), and `ExtraLightData` (`XLIG`) and rewrites the `ExtraLightData`
-fields under ISL semantics:
+(`XRDS`), and `ExtraLightData` (`XLIG`) and rewrites `ExtraLightData::fade` as
+an intensity **delta** from the converted base. `XRDS` and the `XLIG` fade are
+offsets the engine adds to the base radius and fade. The conversion is marked
+in the `XLIG` End Distance Cap, so a reference with a cap of its own keeps it
+and is not converted.
 
-- `ExtraLightData::fov` → absolute ISL size override (0 = inherit base)
-- `ExtraLightData::fade` → intensity **delta** from the converted base
+Community Shaders reads the ISL size and cutoff from the base record only, so a
+placed light keeps the base's size and cutoff and only its fade changes. With
+radius matching the fade is solved for the light's vanilla reach (base radius +
+`XRDS`, times its scale), and a fade offset does not change it. Without radius
+matching it is the vanilla fade (base fade + `XLIG` fade). A reference whose
+vanilla radius or fade is zero or below is switched off.
 
 Refs that carry this plugin's authored `ExtraLightData` but are excluded
-under current rules (spot lights, non-converted/foreign bases, persistent,
-emittance-driven) are automatically reverted to unset defaults when their
+under current rules (spot lights, non-converted/foreign bases, refs
+created at runtime) are automatically reverted to unset defaults when their
 cell attaches. This heals saves written by older builds whose exclusion
 rules were narrower — e.g. spotlight refs whose beam angle was clobbered by
 an ISL size, which made spot lights look like they were no longer excluded.
@@ -136,15 +143,14 @@ neither converts nor breaks them:
 - Cutoffs written by this plugin always stay inside Community Shaders' clamp
   range (`[0.01, 1.0)`), so the value we solve against is the value the
   renderer actually uses.
-- Decorative glow/window/fx bulbs (which particle-light packs typically cover
-  visually) are excluded from conversion by editor-ID heuristics, and
-  emittance-driven placements are skipped in the REFR pass.
+- Decorative glow/window/sun/fx bulbs (which particle-light packs typically cover
+  visually) are excluded from conversion by editor-ID heuristics.
 
 ## Limitations / known caveats
 
 - REFR pass is heuristic because already-saved `XLIG` overrides can be
   ambiguous. Disable `Convert per-placement REFR overrides` in the UI if you
   see artifacts.
-- Magic, projectile, explosion, hazard, window/glow/fx editor-ID matches, and
-  emittance lights are left untouched because those bases are often spawned
-  dynamically, attached to actor spell visuals, or authored as mesh glow.
+- Magic, projectile, explosion, hazard, and window/sun/glow/fx editor-ID matches
+  are left untouched because those bases are often spawned dynamically,
+  attached to actor spell visuals, or authored as mesh glow.

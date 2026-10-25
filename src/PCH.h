@@ -9,6 +9,7 @@
 #include <cmath>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <regex>
 #include <shared_mutex>
 #include <string>
