@@ -18,7 +18,7 @@ namespace isl {
         std::atomic<std::uint32_t> refrSkippedLightPlacer{ 0 };
         std::atomic<std::uint32_t> refrSkippedMagicFX{ 0 };
         std::atomic<std::uint32_t> refrSkippedSpot{ 0 };
-        std::atomic<std::uint32_t> refrSkippedPersistent{ 0 };
+        std::atomic<std::uint32_t> refrSkippedDynamic{ 0 };
         std::atomic<std::uint32_t> refrReverted{ 0 };
 
         void Reset() noexcept
@@ -35,7 +35,7 @@ namespace isl {
             refrSkippedLightPlacer = 0;
             refrSkippedMagicFX = 0;
             refrSkippedSpot = 0;
-            refrSkippedPersistent = 0;
+            refrSkippedDynamic = 0;
             refrReverted = 0;
         }
     };

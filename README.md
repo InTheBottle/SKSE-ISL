@@ -121,9 +121,9 @@ radius matching the fade is solved for the light's vanilla reach (base radius +
 matching it is the vanilla fade (base fade + `XLIG` fade).
 
 Refs that carry this plugin's authored `ExtraLightData` but are excluded
-under current rules (spot lights, non-converted/foreign bases, persistent,
-emittance-driven) are automatically reverted to unset defaults when their
-cell attaches. This heals saves written by older builds whose exclusion
+under current rules (spot lights, non-converted/foreign bases, refs
+created at runtime, emittance-driven) are automatically reverted to unset
+defaults when their cell attaches. This heals saves written by older builds whose exclusion
 rules were narrower — e.g. spotlight refs whose beam angle was clobbered by
 an ISL size, which made spot lights look like they were no longer excluded.
 

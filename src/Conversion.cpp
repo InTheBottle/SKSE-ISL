@@ -105,12 +105,6 @@ namespace isl {
             return true;
         }
 
-        // Persistent refs serialize ExtraLightData into saves forever; skip them for save safety.
-        bool IsPersistent(const RE::TESObjectREFR* refr) noexcept
-        {
-            return (refr->GetFormFlags() & RE::TESForm::RecordFlags::kPersistent) != 0;
-        }
-
         bool IsLightPlacerExcluded(RE::FormID id) noexcept
         {
             if (id == 0)
@@ -910,10 +904,10 @@ namespace isl {
                 return;
             }
 
-            // Save-safety: a persistent ref's ChangeForm would keep our delta forever post-uninstall.
-            if (IsPersistent(refr)) {
+            // Save-safety: a plugin ref's change form doesn't carry XLIG; a ref created at runtime is saved whole.
+            if (refr->IsDynamicForm()) {
                 revertStale();
-                ++g_stats.refrSkippedPersistent;
+                ++g_stats.refrSkippedDynamic;
                 return;
             }
 

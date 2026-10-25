@@ -175,7 +175,7 @@ namespace isl {
                     DrawStatRow("LightPlacer", &stats.lighSkippedLightPlacer, &stats.refrSkippedLightPlacer);
                     DrawStatRow("Magic / FX", &stats.lighSkippedMagicFX, &stats.refrSkippedMagicFX);
                     DrawStatRow("Spot lights", &stats.lighSkippedSpot, &stats.refrSkippedSpot);
-                    DrawStatRow("Persistent", nullptr, &stats.refrSkippedPersistent);
+                    DrawStatRow("Created at runtime", nullptr, &stats.refrSkippedDynamic);
                     DrawStatRow("Reverted stale", nullptr, &stats.refrReverted);
                     ImGuiMCP::EndTable();
                 }
