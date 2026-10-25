@@ -32,7 +32,7 @@ namespace isl {
         std::unordered_set<RE::FormID>      g_lpFormIDs;
         std::shared_mutex                   g_lpMutex;
 
-        // Dynamic FX LIGH bases: magic/projectile/explosion/hazard, fx editor IDs, emittance.
+        // Dynamic FX LIGH bases: magic/projectile/explosion/hazard, fx editor IDs.
         std::unordered_set<RE::FormID>      g_magicFXFormIDs;
         std::shared_mutex                   g_magicFXMutex;
 
@@ -908,12 +908,6 @@ namespace isl {
             if (refr->IsDynamicForm()) {
                 revertStale();
                 ++g_stats.refrSkippedDynamic;
-                return;
-            }
-
-            if (refr->extraList.HasType<RE::ExtraEmittanceSource>()) {
-                revertStale();
-                ++g_stats.refrSkippedMagicFX;
                 return;
             }
 

@@ -173,7 +173,7 @@ namespace isl {
                     DrawStatRow("Already ISL", &stats.lighSkippedAlreadyISL, nullptr);
                     DrawStatRow("Math skipped", &stats.lighSkippedMath, &stats.refrSkippedMath);
                     DrawStatRow("LightPlacer", &stats.lighSkippedLightPlacer, &stats.refrSkippedLightPlacer);
-                    DrawStatRow("Magic / FX", &stats.lighSkippedMagicFX, &stats.refrSkippedMagicFX);
+                    DrawStatRow("Magic / FX", &stats.lighSkippedMagicFX, nullptr);
                     DrawStatRow("Spot lights", &stats.lighSkippedSpot, &stats.refrSkippedSpot);
                     DrawStatRow("Created at runtime", nullptr, &stats.refrSkippedDynamic);
                     DrawStatRow("Reverted stale", nullptr, &stats.refrReverted);

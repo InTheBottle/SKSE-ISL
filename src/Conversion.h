@@ -16,7 +16,6 @@ namespace isl {
         std::atomic<std::uint32_t> refrConverted{ 0 };
         std::atomic<std::uint32_t> refrSkippedMath{ 0 };
         std::atomic<std::uint32_t> refrSkippedLightPlacer{ 0 };
-        std::atomic<std::uint32_t> refrSkippedMagicFX{ 0 };
         std::atomic<std::uint32_t> refrSkippedSpot{ 0 };
         std::atomic<std::uint32_t> refrSkippedDynamic{ 0 };
         std::atomic<std::uint32_t> refrReverted{ 0 };
@@ -33,7 +32,6 @@ namespace isl {
             refrConverted = 0;
             refrSkippedMath = 0;
             refrSkippedLightPlacer = 0;
-            refrSkippedMagicFX = 0;
             refrSkippedSpot = 0;
             refrSkippedDynamic = 0;
             refrReverted = 0;
@@ -72,7 +70,7 @@ namespace isl {
     // Scans Data/LightPlacer/**/*.json for light EditorIDs; resolved LIGH bases are skipped everywhere.
     void LoadLightPlacerExclusions();
 
-    // Collects magic/projectile/explosion/hazard lights and conservative editor-ID/emittance skips.
+    // Collects magic/projectile/explosion/hazard lights and conservative editor-ID skips.
     void LoadMagicFXExclusions();
 
     // Rewrites every TESObjectLIGH to ISL. Idempotent via the ISL flag bit.
