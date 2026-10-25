@@ -118,7 +118,8 @@ Community Shaders reads the ISL size and cutoff from the base record only, so a
 placed light keeps the base's size and cutoff and only its fade changes. With
 radius matching the fade is solved for the light's vanilla reach (base radius +
 `XRDS`, times its scale), and a fade offset does not change it. Without radius
-matching it is the vanilla fade (base fade + `XLIG` fade).
+matching it is the vanilla fade (base fade + `XLIG` fade). A reference whose
+vanilla radius or fade is zero or below is switched off.
 
 Refs that carry this plugin's authored `ExtraLightData` but are excluded
 under current rules (spot lights, non-converted/foreign bases, refs

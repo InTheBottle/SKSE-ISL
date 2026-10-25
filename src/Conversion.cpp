@@ -77,7 +77,9 @@ namespace isl {
         float RefIntensity(const RE::TESObjectLIGH* ligh, const RefRecord& rec, bool radiusMatched) noexcept
         {
             // Community Shaders reads the ISL size and cutoff from the base record only: the ref keeps them, and its
-            // fade is solved for its reach (its vanilla fade without radius matching).
+            // fade is solved for its reach (its vanilla fade without radius matching). No reach or fade: off.
+            if (!(rec.radius > 0.0f && rec.fade > 0.0f))
+                return 0.0f;
             return radiusMatched ?
                 IntensityForReach(rec.radius, ligh->data.fallofExponent, BaseSize(ligh->data.fov)) :
                 rec.fade;
@@ -947,10 +949,6 @@ namespace isl {
             const float rEff  = rOver * scale;
             const float Feff  = origF + fadeOff;
 
-            if (!(rEff > 0.0f) || !(Feff > 0.0f)) {
-                ++g_stats.refrSkippedMath;
-                return;
-            }
             const RefRecord rec{ Feff, rEff };
             const float desiredI = RefIntensity(ligh, rec, radiusMatched) * factor;
 
